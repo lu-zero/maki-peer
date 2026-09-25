@@ -1,0 +1,14 @@
+[package]
+name = "maki-peer"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dev-dependencies]
+maki-agent = { git = "https://github.com/tontinton/maki", rev = "4cefcffba27d0123b76c8d25829dbb0fad90d077" }
+maki-lua = { git = "https://github.com/tontinton/maki", rev = "4cefcffba27d0123b76c8d25829dbb0fad90d077" }
+maki-storage = { git = "https://github.com/tontinton/maki", rev = "4cefcffba27d0123b76c8d25829dbb0fad90d077" }
+serde_json = "1"
+smol = "2"
+tempfile = "3"
