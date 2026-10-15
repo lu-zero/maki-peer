@@ -2,7 +2,7 @@ import { Plugin } from "@opencode/plugin"
 import { join } from "node:path"
 
 import { ORIGIN_HOST, OWNER_REFRESH_MS, POLL_MS, validId, type PeerMessage } from "./protocol.js"
-import { messageRecord, newMessageId, PeerRegistry } from "./peer.js"
+import { applyEventAsync, messageRecord, newMessageId, PeerRegistry, type EventData } from "./peer.js"
 import { encodeBody, receiveOnce, type DeliveryOutcome } from "./receive.js"
 import { resolveSpoolRoot, Spool } from "./spool.js"
 
@@ -12,17 +12,6 @@ type Options = {
   spoolRoot?: string
   /** Set false to read the spool without publishing this host's presence. */
   announce?: boolean
-}
-
-type EventData = {
-  sessionID?: string
-  status?: { type?: string }
-  model?: { providerID?: string; id?: string }
-}
-
-function formatModel(model: EventData["model"]): string | undefined {
-  if (!model?.providerID || !model.id) return undefined
-  return `${model.providerID}/${model.id}`
 }
 
 /** Tool executors receive `unknown`, so narrow the fields we rely on. */
@@ -92,40 +81,7 @@ export default Plugin.define({
     void (async () => {
       try {
         for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
-          const data = event.data as EventData
-          const sessionID = data.sessionID
-          if (!sessionID) continue
-          switch (event.type) {
-            case "session.created":
-            case "session.model.selected":
-            case "session.viewed":
-            case "session.idle":
-              registry.observe(sessionID, formatModel(data.model))
-              break
-            case "session.status":
-              registry.observe(sessionID)
-              if (data.status?.type === "busy") {
-                registry.setBusy(sessionID, true)
-                registry.setWaiting(sessionID, false)
-              } else if (data.status?.type === "idle") {
-                registry.setBusy(sessionID, false)
-              } else if (data.status?.type === "retry") {
-                registry.setWaiting(sessionID, true)
-              }
-              break
-            case "permission.asked":
-              registry.observe(sessionID)
-              registry.setWaiting(sessionID, true)
-              break
-            case "permission.replied":
-              registry.setWaiting(sessionID, false)
-              break
-            case "session.deleted":
-              await registry.retire(sessionID)
-              break
-            default:
-              break
-          }
+          await applyEventAsync(registry, event.type, event.data as EventData)
         }
       } catch (error) {
         if (!controller.signal.aborted) {

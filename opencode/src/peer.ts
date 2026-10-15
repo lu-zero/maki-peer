@@ -179,6 +179,72 @@ export function newMessageId(peerID: string): string {
   return `${peerID}-${randomBytes(6).toString("hex")}`
 }
 
+export type EventData = {
+  sessionID?: string
+  status?: { type?: string }
+  model?: { providerID?: string; id?: string }
+}
+
+function formatModel(model: EventData["model"]): string | undefined {
+  if (!model?.providerID || !model.id) return undefined
+  return `${model.providerID}/${model.id}`
+}
+
+/**
+ * Fold one event into the registry.
+ *
+ * Any event carrying a session id registers that session as a peer. Relying on
+ * a short list of lifecycle events is not safe: `session.created` and friends
+ * are not emitted in every flow, so a peer that only appeared on those would
+ * never register at all. Liveness comes from the execution events.
+ */
+export function applyEvent(registry: PeerRegistry, type: string, data: EventData): void {
+  const sessionID = data.sessionID
+  if (!sessionID) return
+  registry.observe(sessionID, formatModel(data.model))
+  switch (type) {
+    case "session.execution.started":
+      registry.setBusy(sessionID, true)
+      registry.setWaiting(sessionID, false)
+      break
+    case "session.execution.succeeded":
+    case "session.execution.failed":
+    case "session.execution.interrupted":
+      registry.setBusy(sessionID, false)
+      break
+    case "session.status":
+      if (data.status?.type === "busy") {
+        registry.setBusy(sessionID, true)
+        registry.setWaiting(sessionID, false)
+      } else if (data.status?.type === "idle") {
+        // An idle session is no longer blocked on anyone, so a retry that has
+        // since resolved must stop reading as needs_input.
+        registry.setBusy(sessionID, false)
+        registry.setWaiting(sessionID, false)
+      } else if (data.status?.type === "retry") {
+        registry.setWaiting(sessionID, true)
+      }
+      break
+    case "permission.asked":
+      registry.setWaiting(sessionID, true)
+      break
+    case "permission.replied":
+      registry.setWaiting(sessionID, false)
+      break
+    default:
+      break
+  }
+}
+
+/** A deleted session has no inbox to deliver to, so drop its presence record. */
+export async function applyEventAsync(registry: PeerRegistry, type: string, data: EventData): Promise<void> {
+  if (type === "session.deleted" && data.sessionID) {
+    await registry.retire(data.sessionID)
+    return
+  }
+  applyEvent(registry, type, data)
+}
+
 export function messageRecord(input: {
   id: string
   from: string

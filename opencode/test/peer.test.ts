@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { parseMessage, parseOwner, validId } from "../src/protocol.js"
-import { peerIdFor, statusFor } from "../src/peer.js"
+import { applyEvent, applyEventAsync, peerIdFor, statusFor, PeerRegistry } from "../src/peer.js"
 import { resolveSpoolRoot, Spool } from "../src/spool.js"
 import { fakeHost, inbox, makiRecord, owners, tempRoot, writeRecord } from "./harness.js"
 
@@ -124,6 +124,83 @@ describe("presence records", () => {
     expect(owners(root)).not.toContain(`${host.peerID}.json`)
   })
 })
+
+describe("event folding", () => {
+  const registry = () => new PeerRegistry(new Spool(tempRoot()), "opencode")
+
+  test("any event carrying a session id registers that session as a peer", () => {
+    const r = registry()
+    // `session.created` and `session.status` are not emitted in every flow, so
+    // registration must not depend on them.
+    applyEvent(r, "session.inbox.enqueued", { sessionID: "ses_a" })
+    expect(r.has("ses_a")).toBe(true)
+    applyEvent(r, "session.execution.started", { sessionID: "ses_b" })
+    expect(r.has("ses_b")).toBe(true)
+  })
+
+  test("an event with no session id is ignored", () => {
+    const r = registry()
+    applyEvent(r, "model.updated", {})
+    applyEvent(r, "location.shutdown", {})
+    expect(r.sessions()).toEqual([])
+  })
+
+  test("execution events drive the working state", () => {
+    const r = registry()
+    applyEvent(r, "session.inbox.enqueued", { sessionID: "ses_a" })
+    expect(peerStatusOf(r, "ses_a")).toBe("idle")
+    applyEvent(r, "session.execution.started", { sessionID: "ses_a" })
+    expect(peerStatusOf(r, "ses_a")).toBe("working")
+    applyEvent(r, "session.execution.succeeded", { sessionID: "ses_a" })
+    expect(peerStatusOf(r, "ses_a")).toBe("idle")
+    applyEvent(r, "session.execution.started", { sessionID: "ses_a" })
+    applyEvent(r, "session.execution.interrupted", { sessionID: "ses_a" })
+    expect(peerStatusOf(r, "ses_a")).toBe("idle")
+  })
+
+  test("a permission request outranks a running agent", () => {
+    const r = registry()
+    applyEvent(r, "session.execution.started", { sessionID: "ses_a" })
+    applyEvent(r, "permission.asked", { sessionID: "ses_a" })
+    expect(peerStatusOf(r, "ses_a")).toBe("needs_input")
+    applyEvent(r, "permission.replied", { sessionID: "ses_a" })
+    expect(peerStatusOf(r, "ses_a")).toBe("working")
+  })
+
+  test("a session status retry waits for the user", () => {
+    const r = registry()
+    applyEvent(r, "session.status", { sessionID: "ses_a", status: { type: "retry" } })
+    expect(peerStatusOf(r, "ses_a")).toBe("needs_input")
+    applyEvent(r, "session.status", { sessionID: "ses_a", status: { type: "idle" } })
+    expect(peerStatusOf(r, "ses_a")).toBe("idle")
+  })
+
+  test("a model change reaches the presence record", async () => {
+    const root = tempRoot()
+    const r = new PeerRegistry(new Spool(root), "opencode")
+    applyEvent(r, "session.inbox.enqueued", { sessionID: "ses_a" })
+    applyEvent(r, "session.model.selected", { sessionID: "ses_a", model: { providerID: "zai", id: "glm-5" } })
+    await r.flush(0)
+    const [owner] = await r.all()
+    expect(owner?.model).toBe("zai/glm-5")
+  })
+
+  test("a deleted session loses its record", async () => {
+    const root = tempRoot()
+    const r = new PeerRegistry(new Spool(root), "opencode")
+    applyEvent(r, "session.inbox.enqueued", { sessionID: "ses_a" })
+    await r.flush(0)
+    expect(owners(root).length).toBe(1)
+    await applyEventAsync(r, "session.deleted", { sessionID: "ses_a" })
+    expect(r.has("ses_a")).toBe(false)
+    expect(owners(root).length).toBe(0)
+  })
+})
+
+function peerStatusOf(registry: PeerRegistry, sessionID: string): string | undefined {
+  const peer = registry.get(sessionID)
+  return peer ? statusFor({ busy: peer.busy, waiting: peer.waiting }) : undefined
+}
 
 describe("delivery", () => {
   test("a maki record reaches the owning session even though its session id is foreign", async () => {
