@@ -67,3 +67,39 @@ fn peer_spawn_rejects_unknown_launchers() {
     .unwrap_err();
     assert!(err.contains("only the tmux launcher"), "got: {err}");
 }
+
+#[test]
+fn peer_spawn_rejects_malformed_model_specs() {
+    let (reg, _host) = plugin_host();
+    let err = exec_tool(
+        &reg,
+        "peer_spawn",
+        json!({ "prompt": "hello", "model": "not-a-spec" }),
+    )
+    .unwrap_err();
+    assert!(err.contains("provider/model-id"), "got: {err}");
+}
+
+#[test]
+fn peer_spawn_rejects_unresolvable_models() {
+    let (reg, _host) = plugin_host();
+    let err = exec_tool(
+        &reg,
+        "peer_spawn",
+        json!({ "prompt": "hello", "model": "definitely-not-a-provider-xyz/glm" }),
+    )
+    .unwrap_err();
+    assert!(err.contains("did not resolve"), "got: {err}");
+}
+
+#[test]
+fn peer_spawn_valid_model_passes_validation() {
+    let (reg, _host) = plugin_host();
+    let err = exec_tool(
+        &reg,
+        "peer_spawn",
+        json!({ "prompt": "hello", "model": "anthropic/claude-opus-4-6", "launcher": "native" }),
+    )
+    .unwrap_err();
+    assert!(err.contains("only the tmux launcher"), "got: {err}");
+}

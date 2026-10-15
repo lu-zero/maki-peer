@@ -42,23 +42,32 @@ Commands:
 /peer
 /peer list
 /peer send <peer-id> <message>
-/peer spawn [tmux] <prompt>
+/peer spawn [--model <provider/model-id>] [tmux] <prompt>
 ```
 
 Tools:
 
-- `peer_list` lists active local Maki processes.
+- `peer_list` lists active local Maki processes and the model each one runs.
 - `peer_send` sends an observation or status to one peer.
 - `peer_broadcast` sends one observation to every active peer.
-- `peer_spawn` starts an independent Maki process in a detached `tmux` session.
+- `peer_spawn` starts an independent Maki process in a detached `tmux` session,
+  optionally on a chosen model.
 
 Example:
 
 ```text
 /peer spawn tmux Investigate the failing integration test
+/peer spawn --model zai/glm-5.3-flash Review the provider retry logic
 /peer
 /peer send <peer-id> I found a relevant edge case
 ```
+
+`peer_spawn` resolves the model spec through `maki.model.info` before it
+spawns, so a typo in the provider slug fails the spawn instead of dying in the
+new tmux session. The spec uses the same `provider/model-id` form as the
+`--model` flag. A peer reports the model it runs in its presence record, and
+`peer_list` shows it next to the status. The record follows `ModelChanged`
+when the peer switches model later.
 
 The first transport is a small JSON file spool. Messages are observations,
 not prompts or permission responses. A peer can receive messages while its

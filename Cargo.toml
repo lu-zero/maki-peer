@@ -6,6 +6,7 @@ license = "MIT"
 publish = false
 
 [dev-dependencies]
+flume = "0.11"
 maki-agent = { git = "https://github.com/tontinton/maki", rev = "4cefcffba27d0123b76c8d25829dbb0fad90d077" }
 maki-lua = { git = "https://github.com/tontinton/maki", rev = "4cefcffba27d0123b76c8d25829dbb0fad90d077" }
 maki-storage = { git = "https://github.com/tontinton/maki", rev = "4cefcffba27d0123b76c8d25829dbb0fad90d077" }

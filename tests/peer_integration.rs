@@ -1,16 +1,18 @@
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use maki_agent::SessionMailbox;
 use maki_agent::tools::ToolRegistry;
-use maki_lua::{PluginHost, PluginPermissions, UiAction};
+use maki_lua::{ModelRequest, PluginHost, PluginPermissions, UiAction};
 use maki_storage::id::MakiId;
 use serde_json::json;
 use tempfile::TempDir;
 
 const PLUGIN_NAME: &str = "maki-peer";
+const MODEL_SPEC: &str = "zai/glm-5.3-flash";
 
 fn plugin_host(root: &Path) -> (Arc<ToolRegistry>, PluginHost) {
     let registry = Arc::new(ToolRegistry::new());
@@ -23,6 +25,28 @@ fn plugin_host(root: &Path) -> (Arc<ToolRegistry>, PluginHost) {
     )
     .unwrap();
     (registry, host)
+}
+
+/// Answer `maki.model.get` roundtrips the way the UI event loop would, and
+/// forward every other action for the assertions to observe.
+fn serve_ui_actions(rx: flume::Receiver<UiAction>) -> mpsc::Receiver<UiAction> {
+    let (forward_tx, forward_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        while let Ok(action) = rx.recv() {
+            match action {
+                UiAction::Model {
+                    req: ModelRequest::Get,
+                    reply_tx,
+                } => {
+                    let _ = reply_tx.send(Ok(json!({ "spec": MODEL_SPEC })));
+                }
+                other => {
+                    let _ = forward_tx.send(other);
+                }
+            }
+        }
+    });
+    forward_rx
 }
 
 fn exec_tool(
@@ -54,6 +78,23 @@ fn owner_ids(state: &Path) -> Vec<String> {
     ids
 }
 
+fn wait_for_model(state: &Path, id: &str) {
+    let path = state.join("peers/owners").join(format!("{id}.json"));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Ok(text) = fs::read_to_string(&path)
+            && text.contains(MODEL_SPEC)
+        {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "owner record never gained the model"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 fn wait_for_mailbox(mailbox: &SessionMailbox) -> String {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -69,6 +110,7 @@ fn wait_for_mailbox(mailbox: &SessionMailbox) -> String {
     }
 }
 
+
 #[test]
 fn two_plugin_hosts_exchange_an_observation() {
     let temp = TempDir::new().unwrap();
@@ -83,28 +125,35 @@ fn two_plugin_hosts_exchange_an_observation() {
     let state = maki_storage::paths::state_dir().unwrap();
 
     let (first_registry, first_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _first_forward = serve_ui_actions(first_host.ui_action_rx());
     let first_output = exec_tool(&first_registry, "peer_list", json!({})).unwrap();
     assert!(first_output.contains("Local peer:"), "got: {first_output}");
     let first_id = owner_ids(&state)
         .into_iter()
         .next()
         .expect("first peer should register");
+    wait_for_model(&state, &first_id);
+    let first_output = exec_tool(&first_registry, "peer_list", json!({})).unwrap();
+    assert!(
+        first_output.contains(MODEL_SPEC),
+        "peer list should show the running model, got: {first_output}"
+    );
 
     let (second_registry, second_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let second_forward = serve_ui_actions(second_host.ui_action_rx());
     exec_tool(&second_registry, "peer_list", json!({})).unwrap();
     let second_id = owner_ids(&state)
         .into_iter()
         .find(|id| id != &first_id)
         .expect("second peer should register");
 
-    let actions = second_host.ui_action_rx();
     second_host.event_handle().run_command(
         Arc::from(PLUGIN_NAME),
         Arc::from("/peer"),
         "send not/a/peer hello".to_owned(),
         0,
     );
-    let UiAction::Flash(message) = actions
+    let UiAction::Flash(message) = second_forward
         .recv_timeout(Duration::from_secs(5))
         .expect("peer command should answer through the UI")
     else {
@@ -144,3 +193,4 @@ fn two_plugin_hosts_exchange_an_observation() {
     drop(first_host);
     drop(second_host);
 }
+

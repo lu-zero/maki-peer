@@ -134,6 +134,26 @@ local function new_owner()
   }
 end
 
+local function set_owner_model(spec)
+  local owner = runtime.owner
+  if not owner or owner.model == spec then
+    return
+  end
+  owner.model = spec
+  write_json(owner_path(owner.id), owner)
+end
+
+local function report_model()
+  maki.async.run(function()
+    local state = maki.model.get()
+    local spec = nil
+    if type(state) == "table" and type(state.spec) == "string" then
+      spec = state.spec
+    end
+    set_owner_model(spec)
+  end)
+end
+
 local function ensure_registered()
   local ok, err = ensure_layout()
   if not ok then
@@ -150,6 +170,7 @@ local function ensure_registered()
       return nil, "could not allocate a peer id"
     end
     runtime.owner = new_owner()
+    report_model()
   end
   local path = owner_path(runtime.peer_id)
   runtime.owner.last_seen = os.time()
@@ -452,6 +473,14 @@ local function register_status_autocmds()
       runtime.current_session = ev.data.session_id
     end,
   })
+  maki.api.create_autocmd("ModelChanged", {
+    callback = function(ev)
+      local model = ev.data and ev.data.model
+      if type(model) == "table" and type(model.spec) == "string" then
+        set_owner_model(model.spec)
+      end
+    end,
+  })
   maki.api.create_autocmd("SessionEnd", {
     callback = function(ev)
       runtime.statuses[ev.data.session_id] = nil
@@ -480,11 +509,13 @@ local function peer_list_output()
   local owner = runtime.owner
   local lines = {}
   if owner then
-    lines[#lines + 1] = string.format("Local peer: %s (%s)", owner.name, owner.id)
+    lines[#lines + 1] =
+      string.format("Local peer: %s (%s)%s", owner.name, owner.id, owner.model and (" " .. owner.model) or "")
   end
   for _, peer in ipairs(peers) do
     if not owner or peer.id ~= owner.id then
-      lines[#lines + 1] = string.format("- %s [%s] %s", peer.name, peer.id, peer.status)
+      lines[#lines + 1] =
+        string.format("- %s [%s] %s%s", peer.name, peer.id, peer.status, peer.model and (" " .. peer.model) or "")
     end
   end
   if #lines <= 1 then
@@ -493,12 +524,25 @@ local function peer_list_output()
   return table.concat(lines, "\n")
 end
 
-local function start_peer(launcher, prompt)
+local function start_peer(launcher, prompt, model)
   if launcher ~= "tmux" then
     return nil, "only the tmux launcher is available in this build"
   end
   if type(prompt) ~= "string" or prompt:match("^%s*$") then
     return nil, "a non-blank prompt is required"
+  end
+  if model ~= nil then
+    if type(model) ~= "string" or model:match("^%s*$") then
+      return nil, "model must be a non-blank provider/model-id spec"
+    end
+    local slug = model:match("^(%S+)/%S+$")
+    if not slug then
+      return nil, "model must look like provider/model-id, for example zai/glm-5.3-flash"
+    end
+    local info, info_err = maki.model.info(model)
+    if not info then
+      return nil, "model " .. model .. " did not resolve: " .. tostring(info_err)
+    end
   end
   local owner, owner_err = ensure_registered()
   if not owner then
@@ -506,15 +550,13 @@ local function start_peer(launcher, prompt)
   end
   local suffix = owner.id:sub(1, 8)
   local name = "maki-peer-" .. suffix .. "-" .. tostring(os.time())
-  local ok, job_or_err = pcall(maki.fn.jobstart, {
-    "tmux",
-    "new-session",
-    "-d",
-    "-s",
-    name,
-    "maki",
-    prompt,
-  }, {
+  local argv = { "tmux", "new-session", "-d", "-s", name, "maki" }
+  if model then
+    argv[#argv + 1] = "--model"
+    argv[#argv + 1] = model
+  end
+  argv[#argv + 1] = prompt
+  local ok, job_or_err = pcall(maki.fn.jobstart, argv, {
     scope = "plugin",
     name = "peer-spawn-" .. name,
     on_exit = function(_, code)
@@ -531,7 +573,7 @@ end
 
 maki.api.register_prompt_hint({
   slot = "tool_usage",
-  content = "- Use peer_list to discover local Maki instances, peer_send to send an observation, and peer_spawn to start an independent tmux peer.",
+  content = "- Use peer_list to discover local Maki instances, peer_send to send an observation, peer_broadcast to reach every peer, and peer_spawn to start an independent tmux peer, optionally on a chosen model spec.",
 })
 
 maki.api.register_tool({
@@ -607,11 +649,12 @@ maki.api.register_tool({
 maki.api.register_tool({
   name = "peer_spawn",
   kind = "execute",
-  description = "Spawn an independent Maki peer in a detached tmux session.",
+  description = "Spawn an independent Maki peer in a detached tmux session, optionally on a chosen model.",
   schema = {
     type = "object",
     properties = {
       launcher = { type = "string", description = "Launcher to use, currently tmux" },
+      model = { type = "string", description = "Model spec provider/model-id for the peer, e.g. zai/glm-5.3-flash" },
       prompt = { type = "string", description = "Initial task for the peer", required = true },
     },
   },
@@ -620,11 +663,12 @@ maki.api.register_tool({
     return { scopes = { input.launcher or "tmux" }, force_prompt = true }
   end,
   handler = function(input)
-    local name, err = start_peer(input.launcher or "tmux", input.prompt)
+    local name, err = start_peer(input.launcher or "tmux", input.prompt, input.model)
     if not name then
       return { llm_output = err or "peer spawn failed", is_error = true }
     end
-    return "Spawned tmux peer session " .. name .. "; it will register shortly."
+    local model_note = input.model and (" on " .. input.model) or ""
+    return "Spawned tmux peer session " .. name .. model_note .. "; it will register shortly."
   end,
 })
 
@@ -656,20 +700,31 @@ maki.api.register_command({
       end
       maki.notify("Queued peer message " .. receipt.id .. " for " .. receipt.peer_id .. ".", "info", { title = "peer" })
     elseif subcommand == "spawn" then
-      local launcher = "tmux"
-      local prompt = rest
-      local without_tmux = rest:match("^tmux%s+(.+)$")
+      local model, prompt = rest:match("^%-%-model%s+(%S+)%s*(.*)$")
+      if not model then
+        prompt = rest
+      end
+      local without_tmux = prompt:match("^tmux%s+(.+)$")
       if without_tmux then
         prompt = without_tmux
       end
-      local name, err = start_peer(launcher, prompt)
+      local name, err = start_peer("tmux", prompt, model)
       if not name then
         maki.notify("Could not spawn peer: " .. (err or "unknown error"), "error", { title = "peer" })
         return
       end
-      maki.notify("Spawned tmux peer session " .. name .. "; it will register shortly.", "info", { title = "peer" })
+      local model_note = model and (" on " .. model) or ""
+      maki.notify(
+        "Spawned tmux peer session " .. name .. model_note .. "; it will register shortly.",
+        "info",
+        { title = "peer" }
+      )
     else
-      maki.notify("Usage: /peer [list|send <peer-id> <message>|spawn [tmux] <prompt>]", "warn", { title = "peer" })
+      maki.notify(
+        "Usage: /peer [list|send <peer-id> <message>|spawn [--model <provider/model-id>] [tmux] <prompt>]",
+        "warn",
+        { title = "peer" }
+      )
     end
   end,
 })
