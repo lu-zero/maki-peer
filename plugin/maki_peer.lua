@@ -1,10 +1,13 @@
 local POLL_MS = 500
+local OWNER_REFRESH_TICKS = 4
 local MAX_INBOX = 100
 local MAX_BODY_BYTES = 262144
 local MAX_RECORD_BYTES = MAX_BODY_BYTES + 4096
-local OWNER_STALE_SECONDS = 10
+local OWNER_STALE_SECONDS = 15
 local MESSAGE_TTL_SECONDS = 300
 local PROTOCOL_VERSION = 1
+local ORIGIN_HOST = "maki"
+local NOT_LIVE_ERR = "session not live"
 
 local runtime = {
   root = nil,
@@ -12,6 +15,8 @@ local runtime = {
   owner = nil,
   current_session = nil,
   statuses = {},
+  ticks = 0,
+  dirty = false,
 }
 
 local function valid_id(id)
@@ -134,13 +139,29 @@ local function new_owner()
   }
 end
 
+local function flush_owner()
+  local owner = runtime.owner
+  if not owner then
+    return true
+  end
+  owner.last_seen = os.time()
+  owner.status = status_now()
+  local written, write_err = write_json(owner_path(owner.id), owner)
+  if not written then
+    return nil, write_err
+  end
+  runtime.ticks = 0
+  runtime.dirty = false
+  return true
+end
+
 local function set_owner_model(spec)
   local owner = runtime.owner
   if not owner or owner.model == spec then
     return
   end
   owner.model = spec
-  write_json(owner_path(owner.id), owner)
+  flush_owner()
 end
 
 local function report_model()
@@ -170,14 +191,15 @@ local function ensure_registered()
       return nil, "could not allocate a peer id"
     end
     runtime.owner = new_owner()
+    runtime.dirty = true
     report_model()
   end
-  local path = owner_path(runtime.peer_id)
-  runtime.owner.last_seen = os.time()
-  runtime.owner.status = status_now()
-  local written, write_err = write_json(path, runtime.owner)
-  if not written then
-    return nil, write_err
+  runtime.ticks = runtime.ticks + 1
+  if runtime.dirty or runtime.ticks >= OWNER_REFRESH_TICKS then
+    local written, write_err = flush_owner()
+    if not written then
+      return nil, write_err
+    end
   end
   return runtime.owner
 end
@@ -254,6 +276,59 @@ local function encode_body(body)
   return encoded
 end
 
+local function queue_message(owner, target, body, opts)
+  opts = opts or {}
+  local encoded_body, body_err = encode_body(body)
+  if not encoded_body then
+    return nil, body_err
+  end
+  local kind = opts.kind or "observation"
+  if kind ~= "observation" and kind ~= "status" then
+    return nil, "kind must be observation or status"
+  end
+  local ttl = tonumber(opts.ttl_seconds) or MESSAGE_TTL_SECONDS
+  ttl = math.max(1, math.min(math.floor(ttl), MESSAGE_TTL_SECONDS))
+  local message_id = opts.id
+  if message_id and not valid_id(message_id) then
+    return nil, "invalid message id"
+  end
+  if not message_id then
+    local generated, id_err = new_message_id(target.id)
+    if not generated then
+      return nil, id_err
+    end
+    message_id = generated
+  end
+  local inbox = inbox_path(target.id)
+  local ok, dir_err = ensure_dir(inbox)
+  if not ok then
+    return nil, dir_err
+  end
+  local path = path_join(inbox, message_id .. ".json")
+  local meta = maki.fs.metadata(path)
+  if meta then
+    return { id = message_id, peer_id = target.id, state = "duplicate" }
+  end
+  local message = {
+    protocol = PROTOCOL_VERSION,
+    id = message_id,
+    from = owner.id,
+    from_name = owner.name,
+    to = target.id,
+    kind = kind,
+    body = encoded_body,
+    session = opts.session,
+    origin = { host = ORIGIN_HOST },
+    created = os.time(),
+    expires = os.time() + ttl,
+  }
+  local written, write_err = write_json(path, message)
+  if not written then
+    return nil, write_err
+  end
+  return { id = message_id, peer_id = target.id, state = "queued" }
+end
+
 local function send_message(to, body, opts)
   opts = opts or {}
   if not valid_id(to) then
@@ -277,54 +352,7 @@ local function send_message(to, body, opts)
   if not target then
     return nil, "peer is not registered or is offline"
   end
-  local encoded_body, body_err = encode_body(body)
-  if not encoded_body then
-    return nil, body_err
-  end
-  local kind = opts.kind or "observation"
-  if kind ~= "observation" and kind ~= "status" then
-    return nil, "kind must be observation or status"
-  end
-  local ttl = tonumber(opts.ttl_seconds) or MESSAGE_TTL_SECONDS
-  ttl = math.max(1, math.min(math.floor(ttl), MESSAGE_TTL_SECONDS))
-  local message_id = opts.id
-  if message_id and not valid_id(message_id) then
-    return nil, "invalid message id"
-  end
-  if not message_id then
-    local generated, id_err = new_message_id(to)
-    if not generated then
-      return nil, id_err
-    end
-    message_id = generated
-  end
-  local inbox = inbox_path(to)
-  local ok, dir_err = ensure_dir(inbox)
-  if not ok then
-    return nil, dir_err
-  end
-  local path = path_join(inbox, message_id .. ".json")
-  local meta = maki.fs.metadata(path)
-  if meta then
-    return { id = message_id, peer_id = to, state = "duplicate" }
-  end
-  local message = {
-    protocol = PROTOCOL_VERSION,
-    id = message_id,
-    from = owner.id,
-    from_name = owner.name,
-    to = to,
-    kind = kind,
-    body = encoded_body,
-    session = opts.session,
-    created = os.time(),
-    expires = os.time() + ttl,
-  }
-  local written, write_err = write_json(path, message)
-  if not written then
-    return nil, write_err
-  end
-  return { id = message_id, peer_id = to, state = "queued" }
+  return queue_message(owner, target, body, opts)
 end
 
 local function broadcast_message(body, opts)
@@ -339,7 +367,7 @@ local function broadcast_message(body, opts)
   local receipts = {}
   for _, peer in ipairs(peers) do
     if peer.id ~= owner.id then
-      local receipt, err = send_message(peer.id, body, opts)
+      local receipt, err = queue_message(owner, peer, body, opts)
       receipts[#receipts + 1] = receipt or { peer_id = peer.id, state = "rejected", error = err }
     end
   end
@@ -358,13 +386,34 @@ local function current_session()
   return nil, err
 end
 
+local function valid_message(message, owner_id)
+  return type(message) == "table"
+    and message.protocol == PROTOCOL_VERSION
+    and message.to == owner_id
+    and type(message.from) == "string"
+    and type(message.body) == "string"
+    and type(message.id) == "string"
+    and (message.session == nil or type(message.session) == "string")
+end
+
+-- A session id only means something to the host that minted it. An id from
+-- another host cannot name a session here, so honour it only for our own.
+local function message_session(message)
+  local origin = message.origin
+  if type(origin) == "table" and type(origin.host) == "string" and origin.host ~= ORIGIN_HOST then
+    return nil
+  end
+  return message.session
+end
+
 local function deliver_message(path, message)
-  local target = message.session
+  local target = message_session(message)
+  local addressed = target ~= nil
   if not target then
     target = current_session()
   end
   if not target then
-    return nil, "no live session for peer message"
+    return "retry", "no live session for peer message"
   end
   local text = string.format("[peer %s] %s", message.from, message.body)
   local delivered, notify_err = maki.session.notify(text, {
@@ -372,13 +421,16 @@ local function deliver_message(path, message)
     wake = message.wake == true,
   })
   if not delivered then
-    return nil, notify_err
+    if addressed and type(notify_err) == "string" and notify_err:sub(1, #NOT_LIVE_ERR) == NOT_LIVE_ERR then
+      return "dead", notify_err
+    end
+    return "retry", notify_err
   end
   local removed, remove_err = remove_file(path)
   if not removed then
-    return nil, remove_err
+    maki.log.error("peer: delivered " .. message.id .. " but could not remove it: " .. tostring(remove_err))
   end
-  return { message = message, receipt = { state = "delivered" } }
+  return "delivered", nil
 end
 
 local function receive_messages()
@@ -395,43 +447,41 @@ local function receive_messages()
   if not entries then
     return nil, entries_err
   end
-  local messages = {}
-  local delivery_errors = {}
+  local pending = {}
   local now = os.time()
   for _, entry in ipairs(entries) do
     local name, kind = entry[1], entry[2]
     if kind == "file" and name:match("%.json$") then
       local path = path_join(inbox, name)
-      local message, read_err = read_json(path)
-      if message and not read_err then
-        if
-          message.protocol ~= PROTOCOL_VERSION
-          or message.to ~= owner.id
-          or type(message.from) ~= "string"
-          or type(message.body) ~= "string"
-          or type(message.id) ~= "string"
-          or (message.session ~= nil and type(message.session) ~= "string")
-        then
-          maki.log.warn("peer: ignored invalid message " .. name)
-        elseif tonumber(message.expires) and tonumber(message.expires) <= now then
-          remove_file(path)
-        else
-          messages[#messages + 1] = { path = path, value = message }
-        end
+      local message = read_json(path)
+      if not valid_message(message, owner.id) then
+        maki.log.warn("peer: ignored invalid message " .. name)
+      elseif tonumber(message.expires) and tonumber(message.expires) <= now then
+        remove_file(path)
+      else
+        pending[#pending + 1] = { path = path, value = message }
       end
     end
   end
-  table.sort(messages, function(a, b)
+  table.sort(pending, function(a, b)
     return (a.value.created or 0) < (b.value.created or 0)
   end)
-  for index = 1, math.min(#messages, MAX_INBOX) do
-    local item = messages[index]
-    local delivered, deliver_err = deliver_message(item.path, item.value)
-    if delivered then
+  local overflow = #pending - MAX_INBOX
+  if overflow > 0 then
+    maki.log.warn("peer: " .. overflow .. " messages waited behind the inbox cap this cycle")
+  end
+  local delivery_errors = {}
+  for index = 1, math.min(#pending, MAX_INBOX) do
+    local item = pending[index]
+    local state, deliver_err = deliver_message(item.path, item.value)
+    if state == "delivered" then
       maki.api.exec_autocmds("PeerMessage", {
         pattern = item.value.from,
-        data = delivered,
+        data = { message = item.value, receipt = { state = "delivered" } },
       })
+    elseif state == "dead" then
+      maki.log.warn("peer: dropped " .. item.value.id .. " for " .. owner.id .. ": " .. tostring(deliver_err))
+      remove_file(item.path)
     elseif deliver_err then
       delivery_errors[#delivery_errors + 1] = deliver_err
     end
@@ -460,12 +510,7 @@ local function register_status_autocmds()
     callback = function(ev)
       runtime.statuses[ev.data.session_id] = ev.data.status
       runtime.current_session = ev.data.session_id
-      local owner = runtime.owner
-      if owner then
-        owner.status = status_now()
-        owner.last_seen = os.time()
-        write_json(owner_path(owner.id), owner)
-      end
+      flush_owner()
     end,
   })
   maki.api.create_autocmd("SessionFocusChanged", {
@@ -484,6 +529,9 @@ local function register_status_autocmds()
   maki.api.create_autocmd("SessionEnd", {
     callback = function(ev)
       runtime.statuses[ev.data.session_id] = nil
+      if runtime.current_session == ev.data.session_id then
+        runtime.current_session = nil
+      end
       local owner = runtime.owner
       if not owner then
         return
@@ -491,12 +539,11 @@ local function register_status_autocmds()
       local reason = ev.data.reason
       if reason == "shutdown" or reason == "reload" or reason == "completed" or reason == "replaced" then
         remove_file(owner_path(owner.id))
+        maki.fs.rm(inbox_path(owner.id), { recursive = true, force = true })
         runtime.owner = nil
         return
       end
-      owner.status = status_now()
-      owner.last_seen = os.time()
-      write_json(owner_path(owner.id), owner)
+      flush_owner()
     end,
   })
 end
@@ -509,8 +556,13 @@ local function peer_list_output()
   local owner = runtime.owner
   local lines = {}
   if owner then
-    lines[#lines + 1] =
-      string.format("Local peer: %s (%s)%s", owner.name, owner.id, owner.model and (" " .. owner.model) or "")
+    lines[#lines + 1] = string.format(
+      "Local peer: %s [%s] %s%s",
+      owner.name,
+      owner.id,
+      owner.status,
+      owner.model and (" " .. owner.model) or ""
+    )
   end
   for _, peer in ipairs(peers) do
     if not owner or peer.id ~= owner.id then
@@ -525,9 +577,6 @@ local function peer_list_output()
 end
 
 local function start_peer(launcher, prompt, model)
-  if launcher ~= "tmux" then
-    return nil, "only the tmux launcher is available in this build"
-  end
   if type(prompt) ~= "string" or prompt:match("^%s*$") then
     return nil, "a non-blank prompt is required"
   end
@@ -544,6 +593,9 @@ local function start_peer(launcher, prompt, model)
       return nil, "model " .. model .. " did not resolve: " .. tostring(info_err)
     end
   end
+  if launcher ~= "tmux" then
+    return nil, "only the tmux launcher is available in this build"
+  end
   local owner, owner_err = ensure_registered()
   if not owner then
     return nil, owner_err
@@ -556,7 +608,7 @@ local function start_peer(launcher, prompt, model)
     argv[#argv + 1] = model
   end
   argv[#argv + 1] = prompt
-  local ok, job_or_err = pcall(maki.fn.jobstart, argv, {
+  local ok, job, spawn_err = pcall(maki.fn.jobstart, argv, {
     scope = "plugin",
     name = "peer-spawn-" .. name,
     on_exit = function(_, code)
@@ -566,7 +618,10 @@ local function start_peer(launcher, prompt, model)
     end,
   })
   if not ok then
-    return nil, tostring(job_or_err)
+    return nil, tostring(job)
+  end
+  if not job then
+    return nil, spawn_err or "the tmux launcher did not start"
   end
   return name, nil
 end
