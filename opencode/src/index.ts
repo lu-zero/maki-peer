@@ -329,41 +329,11 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
       })
     })
 
-    await ctx.command.transform((editor) => {
-      editor.add({
-        name: "peer",
-        description: "List local Maki and OpenCode peers, or send one a message",
-        execute: async ({ sessionID, prompt, delivery }) => {
-          const args = prompt.text.trim()
-          // A plugin command has one output channel on this host: a session
-          // prompt, which is a model turn. Framed as read only, or every /peer
-          // invites the model to act on a listing.
-          const reply = (text: string) =>
-            ctx.session.prompt({
-              sessionID,
-              text: `[peer output, for reference; no reply or action is needed]\n${text}`,
-              delivery,
-            })
-          if (!args.startsWith("send ")) {
-            await reply(await listOutput(sessionID))
-            return
-          }
-          const rest = args.slice(5).trim()
-          const cut = rest.search(/\s/)
-          if (cut < 0) {
-            await reply("Usage: /peer send <peer> <message>")
-            return
-          }
-          const resolved = resolvePeer(await registry.records(), rest.slice(0, cut), undefined, ownID(sessionID))
-          if ("error" in resolved) {
-            await reply(`Could not send peer message: ${resolved.error}`)
-            return
-          }
-          const result = await queue(resolved.peer, rest.slice(cut).trim(), "observation", sessionID)
-          await reply("error" in result ? `Could not send peer message: ${result.error}` : `Queued peer message ${result.id} for ${result.peer}.`)
-        },
-      })
-    })
+    // No /peer command on this host, deliberately. A plugin command has one
+    // output channel, session.prompt, which is a model turn, so a read only
+    // listing cost a turn and invited the model to act on it. The tools are the
+    // surface for the model, and a command comes back when upstream lets a
+    // command answer without one: anomalyco/opencode#28292.
 
     return () => {
       clearInterval(timer)
