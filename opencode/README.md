@@ -51,19 +51,21 @@ the same id.
 
 ## Use
 
-Commands:
-
-```text
-/peer
-/peer send <peer-id> <message>
-```
-
-Tools:
+There is no `/peer` command on this host. The model controls the feature
+through its tools:
 
 - `peer_list` lists every local Maki and OpenCode instance with its host,
-  status, and model.
-- `peer_send` sends an observation to one peer.
-- `peer_broadcast` sends one observation to every other peer.
+  status, model, and title.
+- `peer_send` sends an observation to one peer, by id or by name.
+- `peer_broadcast` sends one observation to every other peer, optionally
+  limited to peers started in the same directory.
+
+A slash command was tried and removed. A plugin command on this host has one
+output channel, `session.prompt`, which is a model turn, so a read only
+listing cost a turn and read to the model as something to act on. The command
+returns when upstream lets a command answer without prompting the model:
+tracked in anomalyco/opencode#28292. Maki keeps its `/peer`, which renders in
+a float and sends receipts as notices and therefore has no step.
 
 ## Session addressing
 

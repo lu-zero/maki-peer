@@ -79,10 +79,12 @@ Tools:
 - `peer_spawn` starts an independent Maki process in a detached `tmux` session,
   optionally on a chosen model.
 
-The OpenCode side registers the same tool names under the `peer` namespace and
-a `/peer` command, so a model that has learned one set uses the other the same
-way. `peer_spawn` exists only on the Maki side; an OpenCode server plugin has
-no sanctioned way to start a process.
+The OpenCode side registers the same tool names under the `peer` namespace, so
+a model that has learned one set uses the other the same way. The `/peer`
+command exists only on the Maki side: an OpenCode command can only produce a
+model turn, and a peer list is reference rather than a prompt, so that host
+deliberately ships none. `peer_spawn` is also Maki only; an OpenCode server
+plugin has no sanctioned way to start a process.
 
 Example:
 
