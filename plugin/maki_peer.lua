@@ -413,9 +413,11 @@ local function resolve_target(query)
   end
   local matches = match_peers(query, peers)
   if #matches == 0 then
+    -- Ours is excluded: the suggestion list is who you could send to, and
+    -- sending to yourself is not an answer.
     local live = {}
     for _, peer in ipairs(peers) do
-      if is_live(peer) then
+      if is_live(peer) and peer.id ~= runtime.peer_id then
         live[#live + 1] = peer
       end
     end
@@ -423,18 +425,34 @@ local function resolve_target(query)
     -- window: after it, a peer that exited reads the same as one that never
     -- existed, and this must not claim to know which.
     if #live == 0 then
-      return nil, string.format('no live peer matches "%s"; no live peers are registered', query)
+      return nil, string.format('no live peer matches "%s"; no other local peers are registered', query)
     end
     return nil, string.format('no live peer matches "%s"; pass one of: %s', query, peer_labels(live))
   end
-  if #matches > 1 then
-    return nil, string.format('"%s" matches %d peers: %s', query, #matches, peer_labels(matches))
+  local live = {}
+  for _, peer in ipairs(matches) do
+    if is_live(peer) then
+      live[#live + 1] = peer
+    end
   end
+  if #live == 1 then
+    return live[1]
+  end
+  if #live > 1 then
+    return nil, string.format('"%s" matches %d peers: %s', query, #live, peer_labels(live))
+  end
+  -- Nothing live matched, but something did. Asking the reader to
+  -- disambiguate between peers that have all exited is not useful, so name the
+  -- newest and say how many there were.
+  table.sort(matches, function(a, b)
+    return a.age < b.age
+  end)
   local peer = matches[1]
-  if not is_live(peer) then
-    return nil, string.format("peer %s last refreshed %ds ago; it may have exited", peer_label(peer), peer.age)
+  local many = ""
+  if #matches > 1 then
+    many = string.format(" (%d exited peers match, this is the newest)", #matches)
   end
-  return peer
+  return nil, string.format("peer %s last refreshed %ds ago; it may have exited%s", peer_label(peer), peer.age, many)
 end
 
 local function new_message_id(to)
