@@ -26,6 +26,8 @@ export type Owner = {
   last_seen: number
   status: string
   model?: string
+  /** Project root the host works in. Absent on a host that cannot report one. */
+  cwd?: string
   origin?: { host?: unknown }
 }
 
@@ -68,8 +70,22 @@ export function parseOwner(value: unknown): Owner | undefined {
     last_seen: lastSeen,
     status: typeof value.status === "string" ? value.status : "idle",
     ...(typeof value.model === "string" ? { model: value.model } : {}),
+    ...(typeof value.cwd === "string" && value.cwd !== "" ? { cwd: value.cwd } : {}),
     ...(isRecord(value.origin) ? { origin: { host: value.origin.host } } : {}),
   }
+}
+
+/**
+ * Two hosts share a tree when they report the same root. The record is optional,
+ * so a host that reports nothing is never counted as matching.
+ */
+export function sameTree(a: { cwd?: string }, b: { cwd?: string }): boolean {
+  if (!a.cwd || !b.cwd) return false
+  return stripTrailingSlash(a.cwd) === stripTrailingSlash(b.cwd)
+}
+
+function stripTrailingSlash(path: string): string {
+  return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path
 }
 
 /**

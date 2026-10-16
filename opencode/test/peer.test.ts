@@ -3,8 +3,17 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { parseMessage, parseOwner, validId } from "../src/protocol.js"
-import { applyEvent, applyEventAsync, peerIdFor, statusFor, PeerRegistry } from "../src/peer.js"
+import { parseMessage, parseOwner, sameTree, validId, type Owner } from "../src/protocol.js"
+import {
+  applyEvent,
+  applyEventAsync,
+  formatPeerLines,
+  peerIdFor,
+  resolvePeer,
+  statusFor,
+  PeerRegistry,
+  type ResolveResult,
+} from "../src/peer.js"
 import { resolveSpoolRoot, Spool } from "../src/spool.js"
 import { fakeHost, inbox, makiRecord, owners, tempRoot, writeRecord } from "./harness.js"
 
@@ -375,5 +384,171 @@ describe("cross-host exchange", () => {
     expect(maki?.model).toBe("zai/glm-5.3-flash")
     expect(maki?.origin?.host).toBeUndefined()
     expect(read(makiPath).protocol).toBe(1)
+  })
+})
+
+describe("peer resolution", () => {
+  const now = 1_700_000_000
+  const oc = (lastSeen = now): Owner => ({
+    protocol: 1,
+    id: "oc-072f2841ee0e9743",
+    name: "opencode:3H0d7w",
+    started: 0,
+    last_seen: lastSeen,
+    status: "idle",
+    origin: { host: "opencode" },
+  })
+  const maki = (): Owner => ({
+    protocol: 1,
+    id: "peer-6acbcdda-34204583840-7fa08a12",
+    name: "maki-peer-6acbcdda",
+    started: 0,
+    last_seen: now,
+    status: "idle",
+    origin: { host: "maki" },
+  })
+  const id = (result: ResolveResult) => (result as { peer: Owner }).peer.id
+  const error = (result: ResolveResult) => (result as { error: string }).error
+
+  test("takes the id out of the list", () => {
+    expect(id(resolvePeer([oc(), maki()], "oc-072f2841ee0e9743", now))).toBe("oc-072f2841ee0e9743")
+  })
+
+  test("takes a full name, colon and all", () => {
+    expect(id(resolvePeer([oc(), maki()], "opencode:3H0d7w", now))).toBe("oc-072f2841ee0e9743")
+    expect(id(resolvePeer([oc(), maki()], "maki-peer-6acbcdda", now))).toBe("peer-6acbcdda-34204583840-7fa08a12")
+  })
+
+  test("takes the bare fragment a reader copies out of the list", () => {
+    expect(id(resolvePeer([oc(), maki()], "3H0d7w", now))).toBe("oc-072f2841ee0e9743")
+    expect(id(resolvePeer([oc(), maki()], "6acbcdda", now))).toBe("peer-6acbcdda-34204583840-7fa08a12")
+  })
+
+  test("takes an id prefix", () => {
+    expect(id(resolvePeer([oc(), maki()], "peer-6acbc", now))).toBe("peer-6acbcdda-34204583840-7fa08a12")
+  })
+
+  test("answers a typo with the alternatives rather than claiming the peer is gone", () => {
+    const result = resolvePeer([oc(), maki()], "3H0d7X", now)
+    expect(error(result)).toStartWith('no peer matches "3H0d7X"')
+    expect(error(result)).toContain("opencode:3H0d7w [oc-072f2841ee0e9743]")
+  })
+
+  test("names the candidates when a fragment is ambiguous", () => {
+    const twin = { ...oc(), id: "oc-072f2841ee0e9744" }
+    expect(error(resolvePeer([oc(), twin], "opencode:3H0d7w", now))).toStartWith('"opencode:3H0d7w" matches 2 peers')
+  })
+
+  test("reports an exited peer by age instead of as a typo", () => {
+    const result = resolvePeer([oc(now - 60), maki()], "3H0d7w", now)
+    expect(error(result)).toContain("last refreshed 60s ago")
+    expect(error(result)).toContain("it may have exited")
+  })
+
+  test("requires a target", () => {
+    expect(error(resolvePeer([oc()], "   ", now))).toBe("a peer name or id is required")
+  })
+
+  test("never turns an exited pile into a wall of text", () => {
+    const graveyard = Array.from({ length: 200 }, (_, index) => ({
+      ...oc(now - 3600),
+      id: `peer-dead-${index}`,
+      name: `maki-peer-dead${index}`,
+    }))
+    const message = error(resolvePeer([...graveyard, oc(), maki()], "peer-dead-", now))
+    expect(message).toStartWith("peer maki-peer-dead0 [peer-dead-0] last refreshed 3600s ago")
+    expect(message).toContain("200 exited peers match")
+    expect(message.split(" ").length).toBeLessThan(30)
+  })
+
+  test("prefers the live peer over an exited one matching the same fragment", () => {
+    const dead = { ...oc(now - 3600), id: "peer-dead", name: "maki-peer-6ad1d6c6" }
+    expect(id(resolvePeer([dead, maki(), oc()], "6acbcdda", now))).toBe("peer-6acbcdda-34204583840-7fa08a12")
+  })
+
+  test("answers one exited peer by age even when dead records share its name", () => {
+    const dead = { ...oc(now - 90), id: "peer-1", name: "maki-peer-6ad1d6c6" }
+    const older = { ...oc(now - 400), id: "peer-2", name: "maki-peer-6ad1d6c6" }
+    expect(error(resolvePeer([dead, older, oc(), maki()], "6ad1d6c6", now))).toContain("last refreshed 90s ago")
+  })
+})
+
+describe("peer list lines", () => {
+  const oc: Owner = {
+    protocol: 1,
+    id: "oc-072f2841ee0e9743",
+    name: "opencode:3H0d7w",
+    started: 0,
+    last_seen: 0,
+    status: "working",
+    model: "opencode/space-bunny-free",
+    origin: { host: "opencode" },
+  }
+
+  test("leads with the id the send tool takes", () => {
+    const [line] = formatPeerLines([oc], { ids: new Set() })
+    expect(line).toBe("- oc-072f2841ee0e9743  working  opencode/space-bunny-free  opencode:3H0d7w  via opencode")
+  })
+
+  test("marks this host and peers in the same directory", () => {
+    const mine = { ...oc, cwd: "/home/u/src/maki-peer" }
+    const neighbour = { ...oc, id: "oc-1", cwd: "/home/u/src/maki-peer/" }
+    const elsewhere = { ...oc, id: "oc-2", cwd: "/home/u/src/other" }
+    const lines = formatPeerLines([mine, neighbour, elsewhere], { ids: new Set([mine.id]), cwd: "/home/u/src/maki-peer" })
+    expect(lines[0]).toEndWith("  (local)  (same dir)")
+    expect(lines[1]).toEndWith("  (same dir)")
+    expect(lines[2]).toEndWith("  via opencode")
+  })
+
+  test("marks the session that asked, which local cannot single out", () => {
+    const mine = { ...oc, id: peerIdFor("ses_me"), cwd: "/home/u" }
+    const sibling = { ...oc, id: peerIdFor("ses_other") }
+    const lines = formatPeerLines([mine, sibling], { ids: new Set([mine.id, sibling.id]), sessionID: "ses_me" })
+    expect(lines[0]).toContain("(you)")
+    expect(lines[0]).toContain("(local)")
+    expect(lines[1]).toContain("(local)")
+    expect(lines[1]).not.toContain("(you)")
+  })
+
+  test("prints a dash for a peer that names no model", () => {
+    expect(formatPeerLines([{ ...oc, model: undefined }], { ids: new Set() })[0]).toContain("  -  ")
+  })
+
+  test("says so when this host is alone", () => {
+    expect(formatPeerLines([oc], { ids: new Set([oc.id]) })).toEqual([
+      expect.stringContaining("oc-072f2841ee0e9743"),
+      "No other local peers are registered.",
+    ])
+  })
+})
+
+describe("working directory", () => {
+  test("survives the round trip through a presence record", async () => {
+    const root = tempRoot()
+    const spool = new Spool(root)
+    await spool.prepare()
+    const registry = new PeerRegistry(spool, "opencode", "/home/u/src/maki-peer")
+    registry.observe("ses_one")
+    await registry.flush(0)
+    const id = registry.ids()[0] as string
+    expect(read(spool.ownerPath(id)).cwd).toBe("/home/u/src/maki-peer")
+    expect((await registry.all())[0]?.cwd).toBe("/home/u/src/maki-peer")
+  })
+
+  test("is absent when the host cannot report one", async () => {
+    const root = tempRoot()
+    const spool = new Spool(root)
+    await spool.prepare()
+    const registry = new PeerRegistry(spool)
+    registry.observe("ses_one")
+    await registry.flush(0)
+    expect(read(spool.ownerPath(registry.ids()[0] as string)).cwd).toBeUndefined()
+  })
+
+  test("ignores a trailing slash and never matches a host that reports none", () => {
+    expect(sameTree({ cwd: "/a/b" }, { cwd: "/a/b/" })).toBe(true)
+    expect(sameTree({ cwd: "/a/b" }, { cwd: "/a/c" })).toBe(false)
+    expect(sameTree({ cwd: "/a/b" }, {})).toBe(false)
+    expect(sameTree({}, {})).toBe(false)
   })
 })

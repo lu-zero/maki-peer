@@ -1,8 +1,8 @@
 import { Plugin } from "@opencode/plugin"
 import { join } from "node:path"
 
-import { ORIGIN_HOST, OWNER_REFRESH_MS, POLL_MS, validId, type PeerMessage } from "./protocol.js"
-import { applyEventAsync, messageRecord, newMessageId, PeerRegistry, type EventData } from "./peer.js"
+import { ORIGIN_HOST, OWNER_REFRESH_MS, POLL_MS, sameTree, validId, type Owner, type PeerMessage } from "./protocol.js"
+import { applyEventAsync, formatPeerLines, messageRecord, newMessageId, PeerRegistry, resolvePeer, type EventData } from "./peer.js"
 import { encodeBody, receiveOnce, type DeliveryOutcome } from "./receive.js"
 import { resolveSpoolRoot, Spool } from "./spool.js"
 
@@ -15,7 +15,7 @@ type Options = {
 }
 
 /** Tool executors receive `unknown`, so narrow the fields we rely on. */
-function readArgs(input: unknown): { peer_id?: string; message?: string; session?: string; kind?: string } {
+function readArgs(input: unknown): { peer_id?: string; message?: string; session?: string; kind?: string; same_dir_only?: boolean } {
   if (typeof input !== "object" || input === null) return {}
   const record = input as Record<string, unknown>
   const text = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value : undefined)
@@ -24,6 +24,7 @@ function readArgs(input: unknown): { peer_id?: string; message?: string; session
     message: text(record.message),
     session: text(record.session),
     kind: text(record.kind),
+    same_dir_only: record.same_dir_only === true,
   }
 }
 
@@ -32,7 +33,12 @@ export default Plugin.define({
   async setup(ctx) {
     const options = (ctx.options ?? {}) as Options
     const spool = new Spool(resolveSpoolRoot(options))
-    const registry = new PeerRegistry(spool)
+    // The directory the host was started in. opencode exposes no per-session
+    // working directory, so for this host that is the server directory, which
+    // two projects served by one server share. It is reported as same dir for
+    // that reason, and the maki half can be more precise than this one.
+    const cwd = ctx.location.directory || ctx.location.project.directory
+    const registry = new PeerRegistry(spool, "opencode", cwd)
     const announce = options.announce !== false
 
     const log = (level: "info" | "warn" | "error", text: string) => {
@@ -90,47 +96,46 @@ export default Plugin.define({
       }
     })()
 
-    const listOutput = async (): Promise<string> => {
-      const mine = new Set(registry.ids())
-      const lines = (await registry.all()).map((peer) => {
-        const host = peer.origin?.host ?? "maki"
-        const local = mine.has(peer.id) ? " (local)" : ""
-        return `- ${peer.name} [${peer.id}] ${peer.status}${peer.model ? ` ${peer.model}` : ""} via ${host}${local}`
-      })
-      return lines.length === 0 ? "No local hosts are registered." : lines.join("\n")
+    const self = () => ({ ids: new Set(registry.ids()), cwd })
+
+    const listOutput = async (sessionID?: string): Promise<string> =>
+      formatPeerLines(await registry.all(), { ...self(), sessionID }).join("\n")
+
+    /** Broadcast targets, resolved in one pass instead of rescanning per peer. */
+    const broadcastTargets = async (repoOnly: boolean): Promise<Owner[]> => {
+      const mine = registry.ids()
+      const peers = await registry.all()
+      return peers.filter((peer) => !mine.includes(peer.id) && (!repoOnly || sameTree(peer, self())))
     }
 
     const queue = async (
-      target: string,
+      target: Owner,
       body: unknown,
       kind: "observation" | "status",
       fromSessionID: string,
       session?: string,
     ): Promise<{ id: string; peer: string } | { error: string }> => {
-      if (!validId(target)) return { error: "invalid peer id" }
       const encoded = encodeBody(body)
       if (encoded === undefined) return { error: "message body is blank or too large" }
-      const owner = (await registry.all()).find((candidate) => candidate.id === target)
-      if (!owner) return { error: "peer is not registered or is offline" }
       const fromID = registry.idFor(fromSessionID) ?? `${ORIGIN_HOST}-${process.pid}`
       const id = newMessageId(fromID)
-      await spool.ensureInbox(target)
+      await spool.ensureInbox(target.id)
       // A session id only means something on the host that minted it, so it is
       // only written when the receiver is this host and could act on it.
-      const sameHost = (owner.origin?.host ?? "maki") === ORIGIN_HOST
+      const sameHost = (target.origin?.host ?? "maki") === ORIGIN_HOST
       await spool.write(
-        join(spool.inboxPath(target), `${id}.json`),
+        join(spool.inboxPath(target.id), `${id}.json`),
         messageRecord({
           id,
           from: fromID,
           fromName: registry.nameFor(fromSessionID) ?? "opencode",
-          to: target,
+          to: target.id,
           body: encoded,
           kind,
           ...(sameHost && session ? { session } : {}),
         }),
       )
-      return { id, peer: target }
+      return { id, peer: target.id }
     }
 
     await ctx.tool.transform((editor) => {
@@ -139,7 +144,7 @@ export default Plugin.define({
         name: "list",
         description: "List local Maki and OpenCode instances registered on this machine.",
         input: { type: "object", properties: {}, additionalProperties: false },
-        execute: async () => ({ content: await listOutput() }),
+        execute: async (_input, context) => ({ content: await listOutput(context.sessionID) }),
       })
       editor.add({
         name: "send",
@@ -147,7 +152,7 @@ export default Plugin.define({
         input: {
           type: "object",
           properties: {
-            peer_id: { type: "string", description: "Target peer id" },
+            peer_id: { type: "string", description: "Target peer id or name, as printed by peer_list" },
             message: { type: "string", description: "Observation to deliver" },
             session: { type: "string", description: "Optional session id on the receiving host" },
             kind: { type: "string", enum: ["observation", "status"] },
@@ -160,7 +165,9 @@ export default Plugin.define({
           if (!args.peer_id) throw new Error("peer_id is required")
           if (!args.message) throw new Error("message is required")
           const kind = args.kind === "status" ? "status" : "observation"
-          const result = await queue(args.peer_id, args.message, kind, context.sessionID, args.session)
+          const resolved = resolvePeer(await registry.records(), args.peer_id)
+          if ("error" in resolved) throw new Error(resolved.error)
+          const result = await queue(resolved.peer, args.message, kind, context.sessionID, args.session)
           if ("error" in result) throw new Error(result.error)
           return { content: `Queued peer message ${result.id} for ${result.peer}.` }
         },
@@ -174,6 +181,7 @@ export default Plugin.define({
             message: { type: "string", description: "Observation to deliver" },
             session: { type: "string", description: "Optional session id on the receiving host" },
             kind: { type: "string", enum: ["observation", "status"] },
+            same_dir_only: { type: "boolean", description: "Only peers started in the same directory" },
           },
           required: ["message"],
           additionalProperties: false,
@@ -182,11 +190,10 @@ export default Plugin.define({
           const args = readArgs(input)
           if (!args.message) throw new Error("message is required")
           const kind = args.kind === "status" ? "status" : "observation"
-          const mine = new Set(registry.ids())
-          const targets = (await registry.all()).filter((peer) => !mine.has(peer.id))
+          const targets = await broadcastTargets(args.same_dir_only === true)
           let queued = 0
           for (const peer of targets) {
-            const result = await queue(peer.id, args.message, kind, context.sessionID, args.session)
+            const result = await queue(peer, args.message, kind, context.sessionID, args.session)
             if (!("error" in result)) queued++
           }
           return { content: `Queued ${queued} peer messages.` }
@@ -202,17 +209,21 @@ export default Plugin.define({
           const args = prompt.text.trim()
           const reply = (text: string) => ctx.session.prompt({ sessionID, text, delivery })
           if (!args.startsWith("send ")) {
-            await reply(await listOutput())
+            await reply(await listOutput(sessionID))
             return
           }
           const rest = args.slice(5).trim()
           const cut = rest.search(/\s/)
           if (cut < 0) {
-            await reply("Usage: /peer send <peer-id> <message>")
+            await reply("Usage: /peer send <peer> <message>")
             return
           }
-          const peerID = rest.slice(0, cut)
-          const result = await queue(peerID, rest.slice(cut).trim(), "observation", sessionID)
+          const resolved = resolvePeer(await registry.records(), rest.slice(0, cut))
+          if ("error" in resolved) {
+            await reply(`Could not send peer message: ${resolved.error}`)
+            return
+          }
+          const result = await queue(resolved.peer, rest.slice(cut).trim(), "observation", sessionID)
           await reply("error" in result ? `Could not send peer message: ${result.error}` : `Queued peer message ${result.id} for ${result.peer}.`)
         },
       })
