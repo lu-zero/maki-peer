@@ -21,6 +21,14 @@ export const GC_SWEEP_INTERVAL_SECONDS = 3600
 /** How often a host re-reads its own sessions for title and directory. */
 export const DETAIL_REFRESH_SECONDS = 300
 
+/**
+ * How long a delivery may hold a claim on a message before any poller may put
+ * it back in the queue. A live delivery finishes in well under this, so the
+ * timeout is what keeps a crashed poller from wedging an inbox forever while
+ * at-least-once delivery stays intact.
+ */
+export const CLAIM_TIMEOUT_SECONDS = 60
+
 /** Hex characters of the peer id a peer name is built from. */
 export const NAME_HEX_WIDTH = 6
 /** A title is a label, not a paragraph. */

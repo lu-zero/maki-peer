@@ -90,13 +90,44 @@ export class Spool {
     }
   }
 
+  /**
+   * Throws on a read failure, unlike read. The difference matters where a
+   * caller has to decide between dropping a record and leaving it for a later
+   * pass: unreadable is transient, unparsable is not.
+   */
+  async readText(path: string): Promise<string> {
+    const info = await stat(path)
+    if (!info.isFile() || info.size > MAX_RECORD_BYTES) throw new Error(`record is not readable: ${path}`)
+    return readFile(path, "utf8")
+  }
+
   async listJson(dir: string): Promise<string[]> {
+    const files = await this.listFiles(dir)
+    return files.filter((path) => path.endsWith(".json"))
+  }
+
+  /** Every file in a directory, claims included. */
+  async listFiles(dir: string): Promise<string[]> {
     try {
       const entries = await readdir(dir, { withFileTypes: true })
-      return entries.filter((entry) => entry.isFile() && entry.name.endsWith(".json")).map((entry) => join(dir, entry.name))
+      return entries.filter((entry) => entry.isFile()).map((entry) => join(dir, entry.name))
     } catch {
       return []
     }
+  }
+
+  async stat(path: string): Promise<{ mtimeMs: number } | undefined> {
+    try {
+      const info = await stat(path)
+      return info.isFile() ? { mtimeMs: info.mtimeMs } : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Atomic on one filesystem, which is what makes a claim a claim. */
+  async rename(from: string, to: string): Promise<void> {
+    await rename(from, to)
   }
 
   async ensureInbox(id: string): Promise<string> {

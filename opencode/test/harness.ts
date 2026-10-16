@@ -14,6 +14,8 @@ export type FakeHost = {
   registry: PeerRegistry
   delivered: Delivered[]
   peerID: string
+  /** When set, replaces the delivery outcome, for retry and dead paths. */
+  deliverOverride?: () => DeliveryOutcome
   pump: () => Promise<void>
 }
 
@@ -27,7 +29,7 @@ export function fakeHost(root: string, label: string, sessionID: string): FakeHo
   const registry = new PeerRegistry(spool, label)
   const delivered: Delivered[] = []
   const peerID = registry.observe(sessionID)?.id as string
-  return {
+  const host: FakeHost = {
     spool,
     registry,
     delivered,
@@ -38,14 +40,17 @@ export function fakeHost(root: string, label: string, sessionID: string): FakeHo
       await receiveOnce({
         spool,
         peerID,
+        instance: "test",
         addressing: { ownSession: sessionID, owns: (id) => registry.has(id) },
         deliver: async (message: PeerMessage, target: string): Promise<DeliveryOutcome> => {
+          if (host.deliverOverride) return host.deliverOverride()
           delivered.push({ sessionID: target, text: `[peer ${message.from}] ${message.body}` })
           return "delivered"
         },
       })
     },
   }
+  return host
 }
 
 /** Write a spool record by hand, the way the other host would. */

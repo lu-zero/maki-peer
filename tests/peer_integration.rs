@@ -463,6 +463,81 @@ fn a_peer_without_a_cwd_is_simply_not_same_dir() {
 }
 
 #[test]
+fn an_unparsable_record_is_dropped_rather_than_re_read_forever() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx());
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    let inbox = state.join("peers/inboxes").join(&id);
+    fs::create_dir_all(&inbox).unwrap();
+    fs::write(inbox.join("torn.json"), b"{not json").unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while inbox.join("torn.json").exists() {
+        assert!(
+            Instant::now() < deadline,
+            "a record no poller can deliver should be dropped, not re-read every pass"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    drop(host);
+}
+
+#[test]
+fn a_record_that_cannot_be_read_yet_is_left_for_the_next_pass() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx());
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    let live = MakiId::generate();
+    let mailbox = SessionMailbox::register(live);
+
+    let inbox = state.join("peers/inboxes").join(&id);
+    fs::create_dir_all(&inbox).unwrap();
+    let path = inbox.join("late.json");
+    let body = serde_json::to_vec(&json!({
+        "protocol": 1,
+        "id": "late-1",
+        "from": "peer-remote",
+        "from_name": "remote-host",
+        "to": id,
+        "kind": "observation",
+        "body": "arrives whole",
+        "session": live.to_string(),
+        "created": 0,
+        "expires": 4102444800i64,
+    }))
+    .unwrap();
+    fs::write(&path, body).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+
+    // Several polls run while the record cannot be read. A read failure may be
+    // transient, so the record must still be there.
+    std::thread::sleep(Duration::from_millis(1200));
+    assert!(
+        path.exists(),
+        "an unreadable record must not be dropped as undeliverable"
+    );
+
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    let delivered = wait_for_mailbox(&mailbox);
+    assert!(delivered.contains("arrives whole"), "got: {delivered}");
+    drop(host);
+}
+
+#[test]
 fn a_title_with_unicode_punctuation_renders_byte_for_byte() {
     let (_temp, state) = common::isolated_state();
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
