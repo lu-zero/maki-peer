@@ -202,6 +202,41 @@ function peerStatusOf(registry: PeerRegistry, sessionID: string): string | undef
   return peer ? statusFor({ busy: peer.busy, waiting: peer.waiting }) : undefined
 }
 
+describe("sender identity", () => {
+  test("a session sends under its own id, not another session's", () => {
+    const r = new PeerRegistry(new Spool(tempRoot()), "opencode")
+    // One plugin instance tracks every session at its location, so more than
+    // one peer is present when a tool runs.
+    r.observe("ses_first")
+    r.observe("ses_second")
+    r.setBusy("ses_first", true)
+    expect(r.idFor("ses_second")).toBe(peerIdFor("ses_second"))
+    expect(r.idFor("ses_first")).toBe(peerIdFor("ses_first"))
+    expect(r.idFor("ses_second")).not.toBe(r.idFor("ses_first"))
+  })
+
+  test("an untracked session still gets a stable id", () => {
+    const r = new PeerRegistry(new Spool(tempRoot()), "opencode")
+    r.observe("ses_first")
+    expect(r.idFor("ses_unseen")).toBe(peerIdFor("ses_unseen"))
+    expect(r.idFor("ses_unseen")).toBe(r.idFor("ses_unseen"))
+  })
+
+  test("an invalid session id yields nothing rather than a shared fallback", () => {
+    const r = new PeerRegistry(new Spool(tempRoot()), "opencode")
+    r.observe("ses_first")
+    expect(r.idFor("not/a/session")).toBeUndefined()
+    expect(r.nameFor("not/a/session")).toBeUndefined()
+  })
+
+  test("the name falls back to the session suffix when untracked", () => {
+    const r = new PeerRegistry(new Spool(tempRoot()), "opencode")
+    r.observe("ses_abcdef")
+    expect(r.nameFor("ses_abcdef")).toBe("opencode:abcdef")
+    expect(r.nameFor("ses_zzzzzz")).toBe("opencode:zzzzzz")
+  })
+})
+
 describe("delivery", () => {
   test("a maki record reaches the owning session even though its session id is foreign", async () => {
     const root = tempRoot()

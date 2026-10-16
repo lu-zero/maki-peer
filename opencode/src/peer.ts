@@ -135,10 +135,21 @@ export class PeerRegistry {
     this.live.clear()
   }
 
-  /** One peer to send as, preferring a session that is not already busy. */
-  sender(): LivePeer | undefined {
-    const peers = [...this.live.values()]
-    return peers.find((peer) => !peer.busy) ?? peers[0]
+  /**
+   * The peer id a given session sends under.
+   *
+   * The event stream is per location, not per session, so one plugin instance
+   * tracks every session at its location. Picking any of them stamps a message
+   * with another session's id, which is why the sender is always derived from
+   * the session the tool actually ran in.
+   */
+  idFor(sessionID: string): string | undefined {
+    if (!validId(sessionID)) return undefined
+    return this.live.get(sessionID)?.id ?? peerIdFor(sessionID)
+  }
+
+  nameFor(sessionID: string): string | undefined {
+    return this.live.get(sessionID)?.name ?? (validId(sessionID) ? `${this.label}:${sessionID.slice(-6)}` : undefined)
   }
 
   ids(): string[] {

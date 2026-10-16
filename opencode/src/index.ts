@@ -104,6 +104,7 @@ export default Plugin.define({
       target: string,
       body: unknown,
       kind: "observation" | "status",
+      fromSessionID: string,
       session?: string,
     ): Promise<{ id: string; peer: string } | { error: string }> => {
       if (!validId(target)) return { error: "invalid peer id" }
@@ -111,8 +112,7 @@ export default Plugin.define({
       if (encoded === undefined) return { error: "message body is blank or too large" }
       const owner = (await registry.all()).find((candidate) => candidate.id === target)
       if (!owner) return { error: "peer is not registered or is offline" }
-      const from = registry.sender()
-      const fromID = from?.id ?? `${ORIGIN_HOST}-${process.pid}`
+      const fromID = registry.idFor(fromSessionID) ?? `${ORIGIN_HOST}-${process.pid}`
       const id = newMessageId(fromID)
       await spool.ensureInbox(target)
       // A session id only means something on the host that minted it, so it is
@@ -123,7 +123,7 @@ export default Plugin.define({
         messageRecord({
           id,
           from: fromID,
-          fromName: from?.name ?? "opencode",
+          fromName: registry.nameFor(fromSessionID) ?? "opencode",
           to: target,
           body: encoded,
           kind,
@@ -155,11 +155,12 @@ export default Plugin.define({
           required: ["peer_id", "message"],
           additionalProperties: false,
         },
-        execute: async (input) => {
+        execute: async (input, context) => {
           const args = readArgs(input)
           if (!args.peer_id) throw new Error("peer_id is required")
           if (!args.message) throw new Error("message is required")
-          const result = await queue(args.peer_id, args.message, args.kind === "status" ? "status" : "observation", args.session)
+          const kind = args.kind === "status" ? "status" : "observation"
+          const result = await queue(args.peer_id, args.message, kind, context.sessionID, args.session)
           if ("error" in result) throw new Error(result.error)
           return { content: `Queued peer message ${result.id} for ${result.peer}.` }
         },
@@ -177,7 +178,7 @@ export default Plugin.define({
           required: ["message"],
           additionalProperties: false,
         },
-        execute: async (input) => {
+        execute: async (input, context) => {
           const args = readArgs(input)
           if (!args.message) throw new Error("message is required")
           const kind = args.kind === "status" ? "status" : "observation"
@@ -185,7 +186,8 @@ export default Plugin.define({
           const targets = (await registry.all()).filter((peer) => !mine.has(peer.id))
           let queued = 0
           for (const peer of targets) {
-            if (!("error" in (await queue(peer.id, args.message as string, kind, args.session)))) queued++
+            const result = await queue(peer.id, args.message, kind, context.sessionID, args.session)
+            if (!("error" in result)) queued++
           }
           return { content: `Queued ${queued} peer messages.` }
         },
@@ -210,7 +212,7 @@ export default Plugin.define({
             return
           }
           const peerID = rest.slice(0, cut)
-          const result = await queue(peerID, rest.slice(cut).trim(), "observation")
+          const result = await queue(peerID, rest.slice(cut).trim(), "observation", sessionID)
           await reply("error" in result ? `Could not send peer message: ${result.error}` : `Queued peer message ${result.id} for ${result.peer}.`)
         },
       })
