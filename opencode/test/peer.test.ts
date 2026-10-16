@@ -7,11 +7,13 @@ import { parseMessage, parseOwner, sameTree, validId, type Owner } from "../src/
 import {
   applyEvent,
   applyEventAsync,
+  deliveryText,
   formatPeerLines,
   peerIdFor,
-  resolvePeer,
   statusFor,
   PeerRegistry,
+  resolvePeer,
+  sweepStaleOwners,
   type ResolveResult,
 } from "../src/peer.js"
 import { resolveSpoolRoot, Spool } from "../src/spool.js"
@@ -624,5 +626,104 @@ describe("surviving a reload", () => {
     const spool = await publish(root, "opencode-abc", "ses_quiet")
     const anon = new PeerRegistry(spool)
     expect(anon.reclaim(await anon.records())).toBe(0)
+  })
+})
+
+test("gives a receiving session the sender name before the id, one space apart", () => {
+  expect(deliveryText({ from_name: "opencode:3H0d7w", from: "oc-072f2841ee0e9743", body: "ping" })).toBe(
+    "[peer opencode:3H0d7w oc-072f2841ee0e9743] ping",
+  )
+})
+
+describe("mark and sweep", () => {
+  const now = 1_700_000_000
+  const write = async (spool: Spool, id: string, lastSeen: number, name = `maki-${id}`) => {
+    await spool.write(spool.ownerPath(id), {
+      protocol: 1,
+      id,
+      name,
+      started: 1,
+      last_seen: lastSeen,
+      status: "idle",
+    })
+  }
+  const setup = async () => {
+    const root = tempRoot()
+    const spool = new Spool(root)
+    await spool.prepare()
+    const records = async () => new PeerRegistry(spool).records()
+    return { root, spool, records }
+  }
+
+  test("marks and deletes a record that is still long past the horizon", async () => {
+    const { spool, records } = await setup()
+    await write(spool, "peer-dead", now - 3600)
+    const report = await sweepStaleOwners({ spool, records: await records(), ownIDs: new Set(), now })
+    expect(report.marked).toBe(1)
+    expect(report.deleted).toBe(1)
+    expect(await records()).toEqual([])
+  })
+
+  test("keeps a record that refreshed between the mark and the sweep", async () => {
+    const { spool, records } = await setup()
+    await write(spool, "peer-slow", now - 3600)
+    const stale = await records()
+
+    // The peer comes back between the two phases of one pass.
+    await write(spool, "peer-slow", now)
+
+    const report = await sweepStaleOwners({ spool, records: stale, ownIDs: new Set(), now })
+    expect(report.deleted).toBe(0)
+    expect(report.kept).toBe(1)
+    expect((await records()).map((owner) => owner.id)).toEqual(["peer-slow"])
+  })
+
+  test("never marks or deletes this host's own records", async () => {
+    const { spool, records } = await setup()
+    await write(spool, "oc-self", now - 3600)
+    await write(spool, "peer-dead", now - 3600)
+    const report = await sweepStaleOwners({ spool, records: await records(), ownIDs: new Set(["oc-self"]), now })
+    expect(report.marked).toBe(1)
+    expect(report.deleted).toBe(1)
+    expect((await records()).map((owner) => owner.id)).toEqual(["oc-self"])
+  })
+
+  test("leaves a live record alone", async () => {
+    const { spool, records } = await setup()
+    await write(spool, "oc-live", now - 2)
+    const report = await sweepStaleOwners({ spool, records: await records(), ownIDs: new Set(), now })
+    expect(report.marked + report.deleted).toBe(0)
+  })
+
+  test("leaves an unreadable mark file in place rather than clearing the queue", async () => {
+    const { root, spool, records } = await setup()
+    await write(spool, "peer-dead", now - 3600)
+    const torn = spool.gcMarkPath("torn")
+    await spool.write(torn, [{ id: "peer-dead", last_seen: now - 3600 }])
+    // A second writer truncated its file, which is what a torn write looks like.
+    writeFileSync(torn, '[{"id":"peer-dead","last_se')
+
+    // No records of our own, so the only mark in play is the torn one.
+    const report = await sweepStaleOwners({ spool, records: [], ownIDs: new Set(), now })
+    expect(report.unreadable).toBe(1)
+    expect(report.deleted).toBe(0)
+    expect(owners(root)).toContain("peer-dead.json")
+    expect(readdirSync(join(root, "gc"))).toEqual(["torn.json"])
+  })
+
+  test("removes a mark file it acted on, so the queue does not grow", async () => {
+    const { root, spool, records } = await setup()
+    await write(spool, "peer-dead", now - 3600)
+    await sweepStaleOwners({ spool, records: await records(), ownIDs: new Set(), markName: "first", now })
+    expect(readdirSync(join(root, "gc"))).toEqual([])
+  })
+
+  test("processes a mark written by the other host", async () => {
+    const { spool, records } = await setup()
+    await write(spool, "peer-dead", now - 3600)
+    await spool.write(spool.gcMarkPath("from-maki"), [{ id: "peer-dead", last_seen: now - 3600 }])
+    const report = await sweepStaleOwners({ spool, records: [], ownIDs: new Set(), now })
+    expect(report.deleted).toBe(1)
+    expect(await records()).toEqual([])
   })
 })

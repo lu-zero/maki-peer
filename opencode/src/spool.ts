@@ -46,6 +46,16 @@ export class Spool {
     return join(this.root, "inboxes", id)
   }
 
+  /** Where sweeps record what they intend to delete. */
+  gcDir(): string {
+    return join(this.root, "gc")
+  }
+
+  /** One file per mark, so two hosts sweeping together never share a path. */
+  gcMarkPath(name: string): string {
+    return join(this.gcDir(), `${name}.json`)
+  }
+
   async prepare(): Promise<void> {
     await mkdir(this.ownersDir(), { recursive: true })
     await mkdir(join(this.root, "inboxes"), { recursive: true })

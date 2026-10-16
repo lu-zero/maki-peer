@@ -9,6 +9,15 @@ export const MAX_INBOX = 100
 export const MAX_BODY_BYTES = 262144
 export const MAX_RECORD_BYTES = MAX_BODY_BYTES + 4096
 
+/**
+ * How far past the stale window a record may sit before a sweep may claim it.
+ * Twenty times the window: a host blocked in a long synchronous call stops
+ * refreshing, but peers have already dropped it by then, so the record backs
+ * nothing that is still true.
+ */
+export const GC_MARK_AFTER_SECONDS = 300
+export const GC_SWEEP_INTERVAL_SECONDS = 3600
+
 const ID_PATTERN = /^[\w-]+$/
 const MAX_ID_LENGTH = 128
 

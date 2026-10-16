@@ -1,12 +1,15 @@
 import { Plugin } from "@opencode/plugin"
 import { join } from "node:path"
 
-import { ORIGIN_HOST, OWNER_REFRESH_MS, POLL_MS, sameTree, validId, type Owner, type PeerMessage } from "./protocol.js"
-import { applyEventAsync, formatPeerLines, messageRecord, newInstanceId, newMessageId, PeerRegistry, resolvePeer, type EventData } from "./peer.js"
+import { GC_SWEEP_INTERVAL_SECONDS, ORIGIN_HOST, OWNER_REFRESH_MS, POLL_MS, sameTree, validId, type Owner, type PeerMessage } from "./protocol.js"
+import { applyEventAsync, deliveryText, formatPeerLines, messageRecord, newInstanceId, newMessageId, PeerRegistry, resolvePeer, sweepStaleOwners, type EventData } from "./peer.js"
 import { encodeBody, receiveOnce, type DeliveryOutcome } from "./receive.js"
 import { resolveSpoolRoot, Spool } from "./spool.js"
 
 const TOOL_NAMESPACE = "peer"
+
+/** One sweep per hour, counted off the poll tick so no extra timer is needed. */
+const SWEEP_TICKS = Math.round((GC_SWEEP_INTERVAL_SECONDS * 1000) / POLL_MS)
 
 const INSTANCE_SLOT = Symbol.for("maki-peer/instance")
 
@@ -82,7 +85,7 @@ export default Plugin.define({
     const deliver = async (message: PeerMessage, sessionID: string): Promise<DeliveryOutcome> => {
       await ctx.session.synthetic({
         sessionID: sessionID as never,
-        text: `[peer ${message.from}] ${message.body}`,
+        text: deliveryText(message),
         description: message.kind === "status" ? "peer status" : "peer observation",
         metadata: { makiPeer: { from: message.from, kind: message.kind } },
         delivery: "steer",
@@ -91,6 +94,21 @@ export default Plugin.define({
       return "delivered"
     }
 
+    const runSweep = async (): Promise<void> => {
+      if (!announce) return
+      const report = await sweepStaleOwners({
+        spool,
+        records: await registry.records(),
+        ownIDs: new Set(registry.ids()),
+      })
+      if (report.deleted + report.marked + report.unreadable === 0) return
+      log(
+        "info",
+        `swept ${report.deleted} owner record(s), kept ${report.kept}, unreadable mark(s) ${report.unreadable}`,
+      )
+    }
+
+    let ticks = 0
     const poll = async () => {
       if (announce) await registry.flush(OWNER_REFRESH_MS)
       for (const sessionID of registry.sessions()) {
@@ -104,6 +122,13 @@ export default Plugin.define({
           onDrop: (message, reason) => log("warn", `dropped ${message.id}: ${reason}`),
         })
         if (report.overflow > 0) log("warn", `${report.overflow} messages waited behind the inbox cap this cycle`)
+      }
+      // Mark and sweep share the poll tick rather than adding a timer, and run
+      // hourly. Delivery never waits on this: it is wrapped so a sweep that
+      // fails cannot stop a peer receiving its messages.
+      if (++ticks >= SWEEP_TICKS) {
+        ticks = 0
+        void runSweep().catch((error: unknown) => log("error", error instanceof Error ? error.message : String(error)))
       }
     }
 

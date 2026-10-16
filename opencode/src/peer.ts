@@ -1,8 +1,10 @@
 import { createHash, randomBytes } from "node:crypto"
 
 import {
+  GC_MARK_AFTER_SECONDS,
   MESSAGE_TTL_SECONDS,
   ORIGIN_HOST,
+  OWNER_REFRESH_MS,
   OWNER_STALE_SECONDS,
   PROTOCOL_VERSION,
   parseOwner,
@@ -245,6 +247,88 @@ export function newInstanceId(): string {
 /** `name [id]`, the pair every peer-facing message quotes a peer as. */
 export function peerLabel(peer: Owner): string {
   return `${peer.name} [${peer.id}]`
+}
+
+/**
+ * The text a receiving session is handed. Name first because that is what a
+ * reader uses, id after it because that is what they copy back into a send.
+ * The other host prints the same line, so both halves stay readable together.
+ */
+export function deliveryText(message: { from_name: string; from: string; body: string }): string {
+  return `[peer ${message.from_name} ${message.from}] ${message.body}`
+}
+
+export type MarkEntry = { id: string; last_seen: number }
+
+export type SweepReport = { marked: number; deleted: number; kept: number; unreadable: number }
+
+/** A mark is only usable if every entry is well formed, so reject the lot. */
+function parseMark(value: unknown): MarkEntry[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const entries: MarkEntry[] = []
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) return undefined
+    const entry = item as Record<string, unknown>
+    if (typeof entry.id !== "string" || !validId(entry.id)) return undefined
+    if (typeof entry.last_seen !== "number" || !Number.isFinite(entry.last_seen)) return undefined
+    entries.push({ id: entry.id, last_seen: entry.last_seen })
+  }
+  return entries
+}
+
+/**
+ * Mark and sweep dead presence records in one pass.
+ *
+ * Marking writes what looks dead, sweeping deletes only what still looks dead
+ * at that moment. The re-check is the point: a peer that refreshed between the
+ * two phases keeps its record. Without it a sweep is a race, and losing a live
+ * record is the exact failure this spool has already produced twice today.
+ *
+ * The mark goes through the atomic write, so a reader never sees half of one. A
+ * mark file that cannot be read is left where it is rather than deleted: it is
+ * either a torn write or another host's bug, and clearing it would drop a whole
+ * batch on the floor for everyone.
+ */
+export async function sweepStaleOwners(input: {
+  spool: Spool
+  records: Owner[]
+  ownIDs: ReadonlySet<string>
+  now?: number
+  horizon?: number
+  markName?: string
+}): Promise<SweepReport> {
+  const { spool } = input
+  const now = input.now ?? Math.floor(Date.now() / 1000)
+  const horizon = input.horizon ?? GC_MARK_AFTER_SECONDS
+  const report: SweepReport = { marked: 0, deleted: 0, kept: 0, unreadable: 0 }
+  const expired = (owner: Owner): boolean => now - owner.last_seen > horizon
+
+  const candidates = input.records.filter((owner) => expired(owner) && !input.ownIDs.has(owner.id))
+  if (candidates.length > 0) {
+    const name = input.markName ?? `${process.pid}-${randomBytes(4).toString("hex")}`
+    await spool.write(spool.gcMarkPath(name), candidates.map((owner) => ({ id: owner.id, last_seen: owner.last_seen })))
+    report.marked = candidates.length
+  }
+
+  for (const path of await spool.listJson(spool.gcDir())) {
+    const mark = parseMark(await spool.read(path))
+    if (!mark) {
+      report.unreadable++
+      continue
+    }
+    for (const entry of mark) {
+      const owner = parseOwner(await spool.read(spool.ownerPath(entry.id)))
+      if (!owner) continue
+      if (expired(owner)) {
+        await spool.remove(spool.ownerPath(owner.id)).catch(() => {})
+        report.deleted++
+      } else {
+        report.kept++
+      }
+    }
+    await spool.remove(path).catch(() => {})
+  }
+  return report
 }
 
 export type ResolveResult = { peer: Owner } | { error: string }
