@@ -144,8 +144,22 @@ asked: sending to another session of your own host works, sending to your own
 is refused, and a broadcast reaches the others.
 
 Status confidence differs too. Maki reads it from the host, so it is
-authoritative. OpenCode has no per-session read of it and infers it from
-events, so the field is the same and the confidence is not.
+authoritative. OpenCode infers it from events, so the field is the same and the
+confidence is not.
+
+Two further notes that came out of running both halves against one spool.
+
+Delivery order is not guaranteed. Within a single pass a peer delivers oldest
+first, but passes are independent, so three probes sent in order arrived as 1,
+3, 2. An agent that needs an order should put the order in the message.
+
+Delivery is at least once, and the mechanism differs by half. On Maki one
+process is one peer id and peer ids are allocated with an existence check, so a
+peer has exactly one poller and cannot deliver twice. On OpenCode one record can
+be polled by more than one process, since the shared server and a session's own
+client both load the plugin, so a delivery is made exclusive by a claim: the
+message is renamed before it is read, an expired claim goes back to the queue,
+and a poller that died cannot wedge an inbox.
 
 Both fields are authoritative for what they report. `(same dir)` compares the
 peer's `cwd` after trimming trailing slashes, and is a directory comparison
