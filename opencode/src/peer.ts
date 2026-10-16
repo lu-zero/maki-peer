@@ -404,7 +404,7 @@ export function resolvePeer(records: Owner[], target: string, now = Math.floor(D
     const others = hits.length > 1 ? ` (${hits.length} exited peers match, this is the newest)` : ""
     return { error: `peer ${peerLabel(newest)} last refreshed ${age}s ago; it may have exited${others}` }
   }
-  return { error: `no peer matches "${needle}"; pass one of: ${peerLabels(live)}` }
+  return { error: `no live peer matches "${needle}"; pass one of: ${peerLabels(live)}` }
 }
 
 /**

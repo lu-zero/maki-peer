@@ -445,7 +445,7 @@ describe("peer resolution", () => {
 
   test("answers a typo with the alternatives rather than claiming the peer is gone", () => {
     const result = resolvePeer([oc(), maki()], "3H0d7X", now)
-    expect(error(result)).toStartWith('no peer matches "3H0d7X"')
+    expect(error(result)).toStartWith('no live peer matches "3H0d7X"')
     expect(error(result)).toContain("opencode:3H0d7w [oc-072f2841ee0e9743]")
   })
 
