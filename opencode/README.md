@@ -58,6 +58,12 @@ Commands:
 /peer send <peer-id> <message>
 ```
 
+Both forms reply by prompting the session, which is a model step: a plugin
+command on this host has no other output channel, and both delivery modes
+wake the session. The injected text is framed as reference only, so the step
+does not ask the model for anything. Maki does not have this step, because
+maki renders `/peer` in a float and `/peer send` as a notice.
+
 Tools:
 
 - `peer_list` lists every local Maki and OpenCode instance with its host,

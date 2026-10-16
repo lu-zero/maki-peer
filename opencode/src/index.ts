@@ -335,7 +335,15 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
         description: "List local Maki and OpenCode peers, or send one a message",
         execute: async ({ sessionID, prompt, delivery }) => {
           const args = prompt.text.trim()
-          const reply = (text: string) => ctx.session.prompt({ sessionID, text, delivery })
+          // A plugin command has one output channel on this host: a session
+          // prompt, which is a model turn. Framed as read only, or every /peer
+          // invites the model to act on a listing.
+          const reply = (text: string) =>
+            ctx.session.prompt({
+              sessionID,
+              text: `[peer output, for reference; no reply or action is needed]\n${text}`,
+              delivery,
+            })
           if (!args.startsWith("send ")) {
             await reply(await listOutput(sessionID))
             return
