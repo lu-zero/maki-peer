@@ -384,12 +384,13 @@ export function resolvePeer(
   records: Owner[],
   target: string,
   now = Math.floor(Date.now() / 1000),
-  ownIDs: ReadonlySet<string> = new Set(),
+  ownIDs: ReadonlySet<string> | string[] = new Set(),
 ): ResolveResult {
   const needle = target.trim()
   if (!needle) return { error: "a peer name or id is required" }
   const lower = needle.toLowerCase()
-  const others = records.filter((peer) => !ownIDs.has(peer.id))
+  const own = new Set(ownIDs)
+  const others = records.filter((peer) => !own.has(peer.id))
   const live = others.filter((peer) => now - peer.last_seen <= OWNER_STALE_SECONDS)
   const dead = others.filter((peer) => now - peer.last_seen > OWNER_STALE_SECONDS)
   const rules: Array<(peer: Owner) => boolean> = [
