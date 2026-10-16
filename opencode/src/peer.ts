@@ -3,12 +3,14 @@ import { createHash, randomBytes } from "node:crypto"
 import {
   GC_MARK_AFTER_SECONDS,
   MESSAGE_TTL_SECONDS,
+  NAME_HEX_WIDTH,
   ORIGIN_HOST,
   OWNER_REFRESH_MS,
   OWNER_STALE_SECONDS,
   PROTOCOL_VERSION,
   parseOwner,
   sameTree,
+  titleOf,
   type Owner,
   type PeerStatus,
   validId,
@@ -38,8 +40,20 @@ export type LivePeer = {
   busy: boolean
   waiting: boolean
   model?: string
+  cwd?: string
+  title?: string
   dirty: boolean
   lastWrite: number
+}
+
+/**
+ * A peer's name comes from its own id, so it is stable across reloads and
+ * cannot be edited under the addressing rules. A session title is free text and
+ * mutable, which is exactly why it is not the name.
+ */
+export function nameFromPeerID(label: string, peerID: string): string {
+  const rest = peerID.replace(/^[a-z]+-/, "")
+  return `${label}-${rest.slice(0, NAME_HEX_WIDTH)}`
 }
 
 export function peerStatus(peer: LivePeer): PeerStatus {
@@ -50,13 +64,11 @@ export class PeerRegistry {
   private readonly live = new Map<string, LivePeer>()
   private readonly spool: Spool
   private readonly label: string
-  private readonly cwd?: string
   private readonly instance?: string
 
-  constructor(spool: Spool, label = "opencode", opts: { cwd?: string; instance?: string } = {}) {
+  constructor(spool: Spool, label = "opencode", opts: { instance?: string } = {}) {
     this.spool = spool
     this.label = label
-    this.cwd = opts.cwd
     this.instance = opts.instance
   }
 
@@ -67,10 +79,11 @@ export class PeerRegistry {
       this.setModel(sessionID, model)
       return existing
     }
+    const id = peerIdFor(sessionID)
     const peer: LivePeer = {
       sessionID,
-      id: peerIdFor(sessionID),
-      name: `${this.label}:${sessionID.slice(-6)}`,
+      id,
+      name: nameFromPeerID(this.label, id),
       started: Math.floor(Date.now() / 1000),
       busy: false,
       waiting: false,
@@ -80,6 +93,21 @@ export class PeerRegistry {
     if (model) peer.model = model
     this.live.set(sessionID, peer)
     return peer
+  }
+
+  /** Title and directory come from the host's own view of the session. */
+  setDetail(sessionID: string, detail: { title?: string; cwd?: string }): void {
+    const peer = this.live.get(sessionID)
+    if (!peer) return
+    const title = titleOf(detail.title)
+    if (title !== peer.title) {
+      peer.title = title
+      peer.dirty = true
+    }
+    if (detail.cwd && detail.cwd !== peer.cwd) {
+      peer.cwd = detail.cwd
+      peer.dirty = true
+    }
   }
 
   /**
@@ -187,7 +215,8 @@ export class PeerRegistry {
   }
 
   nameFor(sessionID: string): string | undefined {
-    return this.live.get(sessionID)?.name ?? (validId(sessionID) ? `${this.label}:${sessionID.slice(-6)}` : undefined)
+    if (!validId(sessionID)) return undefined
+    return this.live.get(sessionID)?.name ?? nameFromPeerID(this.label, peerIdFor(sessionID))
   }
 
   ids(): string[] {
@@ -227,7 +256,9 @@ export class PeerRegistry {
       last_seen: Math.floor(Date.now() / 1000),
       status: peerStatus(peer),
       ...(peer.model ? { model: peer.model } : {}),
-      ...(this.cwd ? { cwd: this.cwd } : {}),
+      ...(peer.title ? { title: peer.title } : {}),
+      // The session's own directory, from the host, not a process wide guess.
+      ...(peer.cwd ? { cwd: peer.cwd } : {}),
       ...(this.instance ? { instance: this.instance } : {}),
       session_id: peer.sessionID,
       origin: { host: ORIGIN_HOST },
@@ -398,7 +429,8 @@ export function formatPeerLines(
     if (sameTree(peer, self) && !flags.includes("you")) flags.push("same dir")
     const suffix = flags.length === 0 ? "" : `  (${flags.join(")  (")})`
     const model = peer.model ?? "-"
-    return `- ${peer.id}  ${peer.status}  ${model}  ${peer.name}  via ${peer.origin?.host ?? "maki"}${suffix}`
+    const title = peer.title ?? "-"
+    return `- ${peer.id}  ${peer.status}  ${model}  ${peer.name}  ${title}  via ${peer.origin?.host ?? "maki"}${suffix}`
   })
   if (peers.length <= 1) lines.push("No other local peers are registered.")
   return lines

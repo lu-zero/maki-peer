@@ -1,7 +1,7 @@
 import { Plugin } from "@opencode/plugin"
 import { join } from "node:path"
 
-import { GC_SWEEP_INTERVAL_SECONDS, ORIGIN_HOST, OWNER_REFRESH_MS, POLL_MS, sameTree, validId, type Owner, type PeerMessage } from "./protocol.js"
+import { DETAIL_REFRESH_SECONDS, GC_SWEEP_INTERVAL_SECONDS, ORIGIN_HOST, OWNER_REFRESH_MS, POLL_MS, sameTree, validId, type Owner, type PeerMessage } from "./protocol.js"
 import { applyEventAsync, deliveryText, formatPeerLines, messageRecord, newInstanceId, newMessageId, PeerRegistry, resolvePeer, sweepStaleOwners, type EventData } from "./peer.js"
 import { encodeBody, receiveOnce, type DeliveryOutcome } from "./receive.js"
 import { resolveSpoolRoot, Spool } from "./spool.js"
@@ -10,6 +10,9 @@ const TOOL_NAMESPACE = "peer"
 
 /** One sweep per hour, counted off the poll tick so no extra timer is needed. */
 const SWEEP_TICKS = Math.round((GC_SWEEP_INTERVAL_SECONDS * 1000) / POLL_MS)
+
+/** One detail refresh per five minutes, counted off the same tick. */
+const DETAIL_TICKS = Math.round((DETAIL_REFRESH_SECONDS * 1000) / POLL_MS)
 
 const INSTANCE_SLOT = Symbol.for("maki-peer/instance")
 
@@ -82,6 +85,13 @@ export default Plugin.define({
       if (reclaimed > 0) log("info", `reclaimed ${reclaimed} session(s) from a previous load`)
     }
 
+    // adoptDetail is defined below, so the first pass is deferred a turn rather
+    // than hoisted: a session reclaimed here needs its title and directory too,
+    // and waiting five minutes for them is not necessary.
+    void Promise.resolve().then(() => refreshDetails()).catch((error: unknown) =>
+      log("error", error instanceof Error ? error.message : String(error)),
+    )
+
     const deliver = async (message: PeerMessage, sessionID: string): Promise<DeliveryOutcome> => {
       await ctx.session.synthetic({
         sessionID: sessionID as never,
@@ -92,6 +102,20 @@ export default Plugin.define({
         resume: true,
       })
       return "delivered"
+    }
+
+    const adoptDetail = async (sessionID: string): Promise<void> => {
+      const info = await ctx.session.get({ sessionID })
+      registry.setDetail(sessionID, { title: info.title, cwd: info.location?.directory })
+    }
+
+    /** Refresh what the host knows about sessions the registry already holds. */
+    const refreshDetails = async (): Promise<void> => {
+      for (const sessionID of registry.sessions()) {
+        await adoptDetail(sessionID).catch((error: unknown) =>
+          log("warn", `could not read session detail: ${error instanceof Error ? error.message : String(error)}`),
+        )
+      }
     }
 
     const runSweep = async (): Promise<void> => {
@@ -109,6 +133,7 @@ export default Plugin.define({
     }
 
     let ticks = 0
+    let detailTicks = 0
     const poll = async () => {
       if (announce) await registry.flush(OWNER_REFRESH_MS)
       for (const sessionID of registry.sessions()) {
@@ -122,6 +147,15 @@ export default Plugin.define({
           onDrop: (message, reason) => log("warn", `dropped ${message.id}: ${reason}`),
         })
         if (report.overflow > 0) log("warn", `${report.overflow} messages waited behind the inbox cap this cycle`)
+      }
+      // Titles and directories change without an event, and a session observed
+      // before this load never sees the per session read at all, so refresh on
+      // a slow count of this tick rather than only on first sight.
+      if (++detailTicks >= DETAIL_TICKS) {
+        detailTicks = 0
+        await refreshDetails().catch((error: unknown) =>
+          log("error", error instanceof Error ? error.message : String(error)),
+        )
       }
       // Mark and sweep share the poll tick rather than adding a timer, and run
       // hourly. Delivery never waits on this: it is wrapped so a sweep that
@@ -141,7 +175,12 @@ export default Plugin.define({
     void (async () => {
       try {
         for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
-          await applyEventAsync(registry, event.type, event.data as EventData)
+          const data = event.data as EventData
+          const known = data.sessionID ? registry.has(data.sessionID) : false
+          await applyEventAsync(registry, event.type, data)
+          // A session the plugin has just learned about gets one read to pick up
+          // its title and its own directory. The event stream carries neither.
+          if (data.sessionID && !known && registry.has(data.sessionID)) await adoptDetail(data.sessionID)
         }
       } catch (error) {
         if (!controller.signal.aborted) {

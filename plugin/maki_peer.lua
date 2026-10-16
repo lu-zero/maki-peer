@@ -17,10 +17,37 @@ local runtime = {
   statuses = {},
   ticks = 0,
   dirty = false,
+  cwd = nil,
+  title = nil,
 }
+
+local function normalize_dir(path)
+  if type(path) ~= "string" or path == "" then
+    return nil
+  end
+  local trimmed = path:gsub("/+$", "")
+  if trimmed == "" then
+    return "/"
+  end
+  return trimmed
+end
+
+runtime.cwd = normalize_dir(maki.uv.cwd())
 
 local function valid_id(id)
   return type(id) == "string" and #id <= 128 and id:match("^[%w_-]+$") ~= nil
+end
+
+local function same_dir(peer)
+  return runtime.cwd ~= nil and type(peer.cwd) == "string" and normalize_dir(peer.cwd) == runtime.cwd
+end
+
+local function host_of(peer)
+  local origin = peer.origin
+  if type(origin) == "table" and type(origin.host) == "string" then
+    return origin.host
+  end
+  return ORIGIN_HOST
 end
 
 local function new_peer_id()
@@ -128,15 +155,53 @@ local function remove_file(path)
   return true
 end
 
+local MAX_TITLE_RUNES = 64
+
+-- Derived from the peer id, not the title: titles are free text, mutable and
+-- not unique, so they cannot be an address. The opencode half derives its name
+-- from its peer id the same way, so both records read as one rule.
+local function peer_name(id)
+  local rest = id:gsub("^peer%-", "")
+  return "maki-" .. rest:sub(1, 6)
+end
+
+-- A title is free text written by another agent, so it is treated as data and
+-- never as markup: control characters go, whitespace collapses to one space,
+-- and the cap lands on a rune boundary so a code point is never split.
+local function sanitize_title(title)
+  if type(title) ~= "string" then
+    return nil
+  end
+  local text = title:gsub("%c", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
+  if text == "" then
+    return nil
+  end
+  local cut = utf8.offset(text, MAX_TITLE_RUNES + 1)
+  if cut then
+    text = text:sub(1, cut - 1)
+  end
+  return text
+end
+
 local function new_owner()
-  return {
+  local owner = {
     protocol = PROTOCOL_VERSION,
     id = runtime.peer_id,
-    name = "maki-" .. runtime.peer_id:sub(1, 13),
+    name = peer_name(runtime.peer_id),
     started = os.time(),
     last_seen = os.time(),
     status = status_now(),
   }
+  -- Optional on purpose. Bumping PROTOCOL_VERSION would make an upgraded half
+  -- invisible to a half that was not upgraded, since readers reject any record
+  -- whose protocol is not theirs.
+  if runtime.cwd then
+    owner.cwd = runtime.cwd
+  end
+  if runtime.title then
+    owner.title = runtime.title
+  end
+  return owner
 end
 
 local function flush_owner()
@@ -172,6 +237,39 @@ local function report_model()
       spec = state.spec
     end
     set_owner_model(spec)
+  end)
+end
+
+-- maki.session.read is the authority for status, title and working directory,
+-- so this replaces what the status autocmds used to infer. It is an async host
+-- fn, so it runs on the async runtime like the bundled plugins do.
+--
+-- One process is one peer here, but a process can hold several sessions, so the
+-- focused session supplies cwd and title. That is the consistent choice: a peer
+-- receives messages into its focused session, so that is the tree it works in.
+local function refresh_session()
+  maki.async.run(function()
+    local target = current_session()
+    if not target then
+      return
+    end
+    local snapshot = maki.session.read({ session = target })
+    if type(snapshot) ~= "table" then
+      return
+    end
+    if snapshot.status == "idle" or snapshot.status == "working" or snapshot.status == "needs_input" then
+      runtime.statuses[target] = snapshot.status
+    end
+    local dir = normalize_dir(snapshot.cwd)
+    if dir and dir ~= runtime.cwd then
+      runtime.cwd = dir
+      runtime.dirty = true
+    end
+    local title = sanitize_title(snapshot.title)
+    if title ~= runtime.title then
+      runtime.title = title
+      runtime.dirty = true
+    end
   end)
 end
 
@@ -212,11 +310,10 @@ local function owner_entries()
   return entries
 end
 
-local function list_peers()
-  local owner, owner_err = ensure_registered()
-  if not owner then
-    return nil, owner_err
-  end
+-- Every presence record on disk, live or stale, each carrying `age` in seconds.
+-- Resolution needs stale records too, so it can say a peer may have exited
+-- rather than pretending it never existed.
+local function scan_owners()
   local entries, entries_err = owner_entries()
   if not entries then
     return nil, entries_err
@@ -226,15 +323,14 @@ local function list_peers()
   for _, entry in ipairs(entries) do
     local name, kind = entry[1], entry[2]
     if kind == "file" and name:match("%.json$") then
-      local record, read_err = read_json(path_join(runtime.root, "owners", name))
+      local record = read_json(path_join(runtime.root, "owners", name))
       if
-        record
-        and not read_err
+        type(record) == "table"
         and record.protocol == PROTOCOL_VERSION
         and valid_id(record.id)
         and tonumber(record.last_seen)
-        and now - tonumber(record.last_seen) <= OWNER_STALE_SECONDS
       then
+        record.age = now - tonumber(record.last_seen)
         peers[#peers + 1] = record
       end
     end
@@ -243,6 +339,102 @@ local function list_peers()
     return a.id < b.id
   end)
   return peers, nil
+end
+
+local function is_live(peer)
+  return peer.age <= OWNER_STALE_SECONDS
+end
+
+local function list_peers()
+  local owner, owner_err = ensure_registered()
+  if not owner then
+    return nil, owner_err
+  end
+  local peers, scan_err = scan_owners()
+  if not peers then
+    return nil, scan_err
+  end
+  local live = {}
+  for _, peer in ipairs(peers) do
+    if is_live(peer) then
+      live[#live + 1] = peer
+    end
+  end
+  return live, nil
+end
+
+local function peer_label(peer)
+  return string.format("%s [%s]", peer.name, peer.id)
+end
+
+local function peer_labels(peers)
+  local parts = {}
+  for _, peer in ipairs(peers) do
+    parts[#parts + 1] = peer_label(peer)
+  end
+  return table.concat(parts, ", ")
+end
+
+-- Most specific match wins outright, so an exact id is never reported as
+-- ambiguous just because another peer shares its prefix.
+local function match_peers(query, peers)
+  local by_id, by_name, by_name_suffix, by_id_prefix = {}, {}, {}, {}
+  local lowered = query:lower()
+  for _, peer in ipairs(peers) do
+    if peer.id == query then
+      by_id[#by_id + 1] = peer
+    elseif peer.name == query then
+      by_name[#by_name + 1] = peer
+    elseif #lowered <= #peer.name and peer.name:lower():sub(-#lowered) == lowered then
+      by_name_suffix[#by_name_suffix + 1] = peer
+    elseif #lowered <= #peer.id and peer.id:lower():sub(1, #lowered) == lowered then
+      by_id_prefix[#by_id_prefix + 1] = peer
+    end
+  end
+  if #by_id > 0 then
+    return by_id
+  end
+  if #by_name > 0 then
+    return by_name
+  end
+  if #by_name_suffix > 0 then
+    return by_name_suffix
+  end
+  return by_id_prefix
+end
+
+local function resolve_target(query)
+  if type(query) ~= "string" or query:match("^%s*$") then
+    return nil, "a peer name or id is required"
+  end
+  local peers, scan_err = scan_owners()
+  if not peers then
+    return nil, scan_err
+  end
+  local matches = match_peers(query, peers)
+  if #matches == 0 then
+    local live = {}
+    for _, peer in ipairs(peers) do
+      if is_live(peer) then
+        live[#live + 1] = peer
+      end
+    end
+    -- "live" is load bearing once the sweep horizon is longer than the stale
+    -- window: after it, a peer that exited reads the same as one that never
+    -- existed, and this must not claim to know which.
+    if #live == 0 then
+      return nil, string.format('no live peer matches "%s"; no live peers are registered', query)
+    end
+    return nil, string.format('no live peer matches "%s"; pass one of: %s', query, peer_labels(live))
+  end
+  if #matches > 1 then
+    return nil, string.format('"%s" matches %d peers: %s', query, #matches, peer_labels(matches))
+  end
+  local peer = matches[1]
+  if not is_live(peer) then
+    return nil, string.format("peer %s last refreshed %ds ago; it may have exited", peer_label(peer), peer.age)
+  end
+  return peer
 end
 
 local function new_message_id(to)
@@ -329,33 +521,23 @@ local function queue_message(owner, target, body, opts)
   return { id = message_id, peer_id = target.id, state = "queued" }
 end
 
-local function send_message(to, body, opts)
+-- `query` is a peer name, a peer id, or any suffix or prefix of either, so it
+-- is resolved against the presence records rather than validated as an id.
+local function send_message(query, body, opts)
   opts = opts or {}
-  if not valid_id(to) then
-    return nil, "invalid peer id"
-  end
   local owner, owner_err = ensure_registered()
   if not owner then
     return nil, owner_err
   end
-  local peers, list_err = list_peers()
-  if not peers then
-    return nil, list_err
-  end
-  local target
-  for _, peer in ipairs(peers) do
-    if peer.id == to then
-      target = peer
-      break
-    end
-  end
+  local target, resolve_err = resolve_target(query)
   if not target then
-    return nil, "peer is not registered or is offline"
+    return nil, resolve_err
   end
   return queue_message(owner, target, body, opts)
 end
 
 local function broadcast_message(body, opts)
+  opts = opts or {}
   local peers, list_err = list_peers()
   if not peers then
     return nil, list_err
@@ -364,9 +546,10 @@ local function broadcast_message(body, opts)
   if not owner then
     return nil, owner_err
   end
+  local same_dir_only = opts.same_dir_only == true
   local receipts = {}
   for _, peer in ipairs(peers) do
-    if peer.id ~= owner.id then
+    if peer.id ~= owner.id and (not same_dir_only or same_dir(peer)) then
       local receipt, err = queue_message(owner, peer, body, opts)
       receipts[#receipts + 1] = receipt or { peer_id = peer.id, state = "rejected", error = err }
     end
@@ -391,9 +574,16 @@ local function valid_message(message, owner_id)
     and message.protocol == PROTOCOL_VERSION
     and message.to == owner_id
     and type(message.from) == "string"
+    and type(message.from_name) == "string"
     and type(message.body) == "string"
     and type(message.id) == "string"
     and (message.session == nil or type(message.session) == "string")
+end
+
+-- One string, mirrored byte for byte by the opencode half, so a reader can map
+-- the prefix back to a name without consulting peer_list.
+local function delivery_text(message)
+  return string.format("[peer %s %s] %s", message.from_name, message.from, message.body)
 end
 
 -- A session id only means something to the host that minted it. An id from
@@ -415,7 +605,7 @@ local function deliver_message(path, message)
   if not target then
     return "retry", "no live session for peer message"
   end
-  local text = string.format("[peer %s] %s", message.from, message.body)
+  local text = delivery_text(message)
   local delivered, notify_err = maki.session.notify(text, {
     session = target,
     wake = message.wake == true,
@@ -494,6 +684,7 @@ end
 
 local function poll()
   maki.defer_fn(poll, POLL_MS)
+  refresh_session()
   local owner, owner_err = ensure_registered()
   if not owner then
     maki.log.warn("peer registration: " .. owner_err)
@@ -548,32 +739,80 @@ local function register_status_autocmds()
   })
 end
 
-local function peer_list_output()
+local function peer_list_lines()
   local peers, err = list_peers()
   if not peers then
     return nil, err
   end
-  local owner = runtime.owner
+  local mine = runtime.peer_id
   local lines = {}
-  if owner then
-    lines[#lines + 1] = string.format(
-      "Local peer: %s [%s] %s%s",
-      owner.name,
-      owner.id,
-      owner.status,
-      owner.model and (" " .. owner.model) or ""
-    )
-  end
   for _, peer in ipairs(peers) do
-    if not owner or peer.id ~= owner.id then
-      lines[#lines + 1] =
-        string.format("- %s [%s] %s%s", peer.name, peer.id, peer.status, peer.model and (" " .. peer.model) or "")
+    local line = string.format(
+      "- %s  %s  %s  %s  %s  via %s",
+      peer.id,
+      peer.status,
+      peer.model or "-",
+      peer.name,
+      peer.title or "-",
+      host_of(peer)
+    )
+    if mine and peer.id == mine then
+      line = line .. "  (you)"
     end
+    if host_of(peer) == ORIGIN_HOST then
+      line = line .. "  (local)"
+    end
+    if same_dir(peer) then
+      line = line .. "  (same dir)"
+    end
+    lines[#lines + 1] = line
   end
-  if #lines <= 1 then
-    lines[#lines + 1] = "No other local Maki instances are registered."
+  if #lines == 0 then
+    lines[1] = "No other local peers are registered."
+  end
+  return lines, nil
+end
+
+local function peer_list_output()
+  local lines, err = peer_list_lines()
+  if not lines then
+    return nil, err
   end
   return table.concat(lines, "\n")
+end
+
+local PEER_WINDOW_MARGIN = 4
+
+-- A notice renders one line in the status bar, so the list goes into a float
+-- instead and the command waits in recv until the user dismisses it.
+local function show_peers()
+  local lines, err = peer_list_lines()
+  if not lines then
+    maki.notify(err or "could not list peers", "error", { title = "peer" })
+    return
+  end
+  local width = 0
+  for _, line in ipairs(lines) do
+    width = math.max(width, maki.ui.display_width(line))
+  end
+  local cols = maki.ui.terminal_size().cols
+  local buf = maki.ui.buf({ scratch = true })
+  buf:lines(lines)
+  local win = maki.ui.open_win(buf, {
+    title = " Peers ",
+    width = math.min(width + PEER_WINDOW_MARGIN, cols - PEER_WINDOW_MARGIN),
+    height = #lines + 2,
+    border = "rounded",
+    focus = true,
+    footer = { { "Esc", "close" } },
+  })
+  while true do
+    local ev = win:recv()
+    if not ev or ev.type == "close" or (ev.type == "key" and ev.key == "<Esc>") then
+      break
+    end
+  end
+  win:close()
 end
 
 local function start_peer(launcher, prompt, model)
@@ -659,7 +898,11 @@ maki.api.register_tool({
   schema = {
     type = "object",
     properties = {
-      peer_id = { type = "string", description = "Target local peer id", required = true },
+      peer_id = {
+        type = "string",
+        description = "Target peer id, name, or any suffix or prefix of either",
+        required = true,
+      },
       message = { type = "string", description = "Observation to deliver", required = true },
       session = { type = "string", description = "Optional target session id" },
       kind = { type = "string", description = "observation or status" },
@@ -687,12 +930,14 @@ maki.api.register_tool({
       message = { type = "string", description = "Observation to deliver", required = true },
       session = { type = "string", description = "Optional target session id" },
       kind = { type = "string", description = "observation or status" },
+      same_dir_only = { type = "boolean", description = "Only peers reporting the same working directory" },
     },
   },
   handler = function(input)
     local receipts, err = broadcast_message(input.message, {
       session = input.session,
       kind = input.kind,
+      same_dir_only = input.same_dir_only,
     })
     if not receipts then
       return { llm_output = err or "peer broadcast failed", is_error = true }
@@ -735,20 +980,18 @@ maki.api.register_command({
     local args = opts.args or ""
     local subcommand, rest = args:match("^(%S+)%s*(.*)$")
     if not subcommand then
-      local output, err = peer_list_output()
-      maki.notify(output or err or "could not list peers", err and "error" or "info", { title = "peer" })
+      show_peers()
       return
     end
     if subcommand == "list" then
-      local output, err = peer_list_output()
-      maki.notify(output or err or "could not list peers", err and "error" or "info", { title = "peer" })
+      show_peers()
     elseif subcommand == "send" then
-      local peer_id, message = rest:match("^(%S+)%s+(.+)$")
-      if not peer_id then
-        maki.notify("Usage: /peer send <peer-id> <message>", "warn", { title = "peer" })
+      local peer, message = rest:match("^(%S+)%s+(.+)$")
+      if not peer then
+        maki.notify("Usage: /peer send <peer> <message>", "warn", { title = "peer" })
         return
       end
-      local receipt, err = send_message(peer_id, message, {})
+      local receipt, err = send_message(peer, message, {})
       if not receipt then
         maki.notify("Could not send peer message: " .. (err or "unknown error"), "error", { title = "peer" })
         return
@@ -776,7 +1019,7 @@ maki.api.register_command({
       )
     else
       maki.notify(
-        "Usage: /peer [list|send <peer-id> <message>|spawn [--model <provider/model-id>] [tmux] <prompt>]",
+        "Usage: /peer [list|send <peer> <message>|spawn [--model <provider/model-id>] [tmux] <prompt>]",
         "warn",
         { title = "peer" }
       )

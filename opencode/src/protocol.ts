@@ -18,6 +18,14 @@ export const MAX_RECORD_BYTES = MAX_BODY_BYTES + 4096
 export const GC_MARK_AFTER_SECONDS = 300
 export const GC_SWEEP_INTERVAL_SECONDS = 3600
 
+/** How often a host re-reads its own sessions for title and directory. */
+export const DETAIL_REFRESH_SECONDS = 300
+
+/** Hex characters of the peer id a peer name is built from. */
+export const NAME_HEX_WIDTH = 6
+/** A title is a label, not a paragraph. */
+export const MAX_TITLE_RUNES = 64
+
 const ID_PATTERN = /^[\w-]+$/
 const MAX_ID_LENGTH = 128
 
@@ -37,6 +45,8 @@ export type Owner = {
   model?: string
   /** Project root the host works in. Absent on a host that cannot report one. */
   cwd?: string
+  /** Free text the host shows for this session. Rendered, never acted on. */
+  title?: string
   /**
    * Identifies the plugin instance that wrote the record, so a reload can take
    * its own sessions back. Stable across reloads, so it is only ever compared
@@ -88,10 +98,27 @@ export function parseOwner(value: unknown): Owner | undefined {
     status: typeof value.status === "string" ? value.status : "idle",
     ...(typeof value.model === "string" ? { model: value.model } : {}),
     ...(typeof value.cwd === "string" && value.cwd !== "" ? { cwd: value.cwd } : {}),
+    ...(titleOf(value.title) ? { title: titleOf(value.title) } : {}),
     ...(typeof value.instance === "string" && value.instance !== "" ? { instance: value.instance } : {}),
     ...(typeof value.session_id === "string" && value.session_id !== "" ? { session_id: value.session_id } : {}),
     ...(isRecord(value.origin) ? { origin: { host: value.origin.host } } : {}),
   }
+}
+
+/**
+ * Make a title safe to print on one list line.
+ *
+ * It is free text written by another session, so a newline would inject a fake
+ * row and an escape sequence would do worse. Runs of whitespace collapse to a
+ * single space, which is also what a reader wants, and the cap counts runes so
+ * it cannot split a code point in half.
+ */
+export function titleOf(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined
+  const flat = value.replace(/\p{Cc}/gu, " ").replace(/\s+/gu, " ").trim()
+  if (flat === "") return undefined
+  const runes = [...flat]
+  return runes.length > MAX_TITLE_RUNES ? runes.slice(0, MAX_TITLE_RUNES).join("").trimEnd() : flat
 }
 
 /**

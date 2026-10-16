@@ -6,9 +6,15 @@ use maki_agent::tools::ToolRegistry;
 use maki_lua::{PluginHost, PluginPermissions};
 use serde_json::json;
 
+mod common;
+
 const PLUGIN_NAME: &str = "maki-peer";
 
 fn plugin_host() -> (Arc<ToolRegistry>, PluginHost) {
+    // The poll loop the plugin schedules from a zero delay timer registers a
+    // presence record the first time the runtime yields, so a test that loads
+    // the host without redirecting XDG writes into the real spool.
+    let (_temp, _state) = common::isolated_state();
     let reg = Arc::new(ToolRegistry::new());
     let host = PluginHost::new(Arc::clone(&reg)).unwrap();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -45,7 +51,7 @@ fn tools_register() {
 }
 
 #[test]
-fn peer_send_rejects_invalid_ids() {
+fn peer_send_reports_an_unmatched_target() {
     let (reg, _host) = plugin_host();
     let err = exec_tool(
         &reg,
@@ -53,7 +59,10 @@ fn peer_send_rejects_invalid_ids() {
         json!({ "peer_id": "not/a/path", "message": "hello" }),
     )
     .unwrap_err();
-    assert!(err.contains("invalid peer id"), "got: {err}");
+    assert!(
+        err.contains("no live peer matches \"not/a/path\""),
+        "got: {err}"
+    );
 }
 
 #[test]

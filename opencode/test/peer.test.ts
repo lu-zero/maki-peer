@@ -3,12 +3,13 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { parseMessage, parseOwner, sameTree, validId, type Owner } from "../src/protocol.js"
+import { GC_MARK_AFTER_SECONDS, MAX_TITLE_RUNES, NAME_HEX_WIDTH, parseMessage, parseOwner, sameTree, titleOf, validId, type Owner } from "../src/protocol.js"
 import {
   applyEvent,
   applyEventAsync,
   deliveryText,
   formatPeerLines,
+  nameFromPeerID,
   peerIdFor,
   statusFor,
   PeerRegistry,
@@ -121,7 +122,7 @@ describe("presence records", () => {
     await host.pump()
     const [owner] = await host.registry.all()
     expect(owner?.origin?.host).toBe("opencode")
-    expect(owner?.name).toBe("opencode:oc_one")
+    expect(owner?.name).toBe(nameFromPeerID("opencode", peerIdFor("ses_oc_one")))
     expect(owner?.status).toBe("idle")
   })
 
@@ -240,11 +241,23 @@ describe("sender identity", () => {
     expect(r.nameFor("not/a/session")).toBeUndefined()
   })
 
-  test("the name falls back to the session suffix when untracked", () => {
+  test("the name is derived from the peer id, not the session, so it survives a reload", () => {
     const r = new PeerRegistry(new Spool(tempRoot()), "opencode")
     r.observe("ses_abcdef")
-    expect(r.nameFor("ses_abcdef")).toBe("opencode:abcdef")
-    expect(r.nameFor("ses_zzzzzz")).toBe("opencode:zzzzzz")
+    expect(r.nameFor("ses_abcdef")).toBe(nameFromPeerID("opencode", peerIdFor("ses_abcdef")))
+    expect(r.nameFor("ses_abcdef")).toBe(r.nameFor("ses_abcdef"))
+    // An untracked session still gets a name, and it is the same one the peer id
+    // gives, so addressing does not depend on the registry having seen it.
+    expect(r.nameFor("ses_zzzzzz")).toBe(nameFromPeerID("opencode", peerIdFor("ses_zzzzzz")))
+    expect(r.nameFor("ses_abcdef")).not.toBe(r.nameFor("ses_zzzzzz"))
+  })
+
+  test("a name is the host plus six hex of the peer id", () => {
+    expect(nameFromPeerID("maki", "peer-6ac003aa-28e1e6e9573-7ded469b")).toBe("maki-6ac003")
+    expect(nameFromPeerID("opencode", "oc-072f2841ee0e9743")).toBe("opencode-072f28")
+    // The width is a shared constant, not a habit that drifts per half.
+    expect(nameFromPeerID("maki", "peer-6ac003aa")).toBe(`maki-${"6ac003aa".slice(0, NAME_HEX_WIDTH)}`)
+    expect(nameFromPeerID("maki", "peer-6ac003aa")).toHaveLength("maki".length + 1 + NAME_HEX_WIDTH)
   })
 })
 
@@ -479,7 +492,7 @@ describe("peer list lines", () => {
   const oc: Owner = {
     protocol: 1,
     id: "oc-072f2841ee0e9743",
-    name: "opencode:3H0d7w",
+    name: "opencode-072f28",
     started: 0,
     last_seen: 0,
     status: "working",
@@ -489,7 +502,15 @@ describe("peer list lines", () => {
 
   test("leads with the id the send tool takes", () => {
     const [line] = formatPeerLines([oc], { ids: new Set() })
-    expect(line).toBe("- oc-072f2841ee0e9743  working  opencode/space-bunny-free  opencode:3H0d7w  via opencode")
+    expect(line).toBe("- oc-072f2841ee0e9743  working  opencode/space-bunny-free  opencode-072f28  -  via opencode")
+  })
+
+  test("renders the title between name and host, and stays one line however the title behaves", () => {
+    const titled = { ...oc, title: "reviewer: watching the provider retry path" }
+    const [line] = formatPeerLines([titled], { ids: new Set() })
+    expect(line).toBe(
+      "- oc-072f2841ee0e9743  working  opencode/space-bunny-free  opencode-072f28  reviewer: watching the provider retry path  via opencode",
+    )
   })
 
   test("marks this host and peers in the same directory", () => {
@@ -522,6 +543,10 @@ describe("peer list lines", () => {
     expect(formatPeerLines([{ ...oc, model: undefined }], { ids: new Set() })[0]).toContain("  -  ")
   })
 
+  test("prints a dash for a peer with no title", () => {
+    expect(formatPeerLines([{ ...oc, title: undefined }], { ids: new Set() })[0]).toContain("  opencode-072f28  -  via")
+  })
+
   test("says so when this host is alone", () => {
     expect(formatPeerLines([oc], { ids: new Set([oc.id]) })).toEqual([
       expect.stringContaining("oc-072f2841ee0e9743"),
@@ -530,17 +555,83 @@ describe("peer list lines", () => {
   })
 })
 
+describe("titles", () => {
+  test("survives the round trip through a presence record", async () => {
+    const root = tempRoot()
+    const spool = new Spool(root)
+    await spool.prepare()
+    const registry = new PeerRegistry(spool)
+    registry.observe("ses_one")
+    registry.setDetail("ses_one", { title: "reviewer: provider retry path" })
+    await registry.flush(0)
+    expect(read(spool.ownerPath(registry.ids()[0] as string)).title).toBe("reviewer: provider retry path")
+  })
+
+  test("a newline cannot inject a fake list row", () => {
+    expect(titleOf("legit\n- oc-fake  idle  -  -  via maki")).toBe("legit - oc-fake idle - - via maki")
+  })
+
+  test("control characters and tab runs are flattened, not just newlines", () => {
+    expect(titleOf("a\t\tb")).toBe("a b")
+    expect(titleOf("a\u001b[31mred\u001b[0m")).toBe("a [31mred [0m")
+  })
+
+  test("the cap is counted in runes, so a code point is never split", () => {
+    // Sixty four runes of "e" followed by combining accents is sixty four
+    // graphemes but far more bytes; the cap must cut at a code point boundary.
+    const wide = "e".repeat(70)
+    expect([...(titleOf(wide) as string)].length).toBe(MAX_TITLE_RUNES)
+    const unicode = "e\u0301".repeat(MAX_TITLE_RUNES + 5)
+    expect([...(titleOf(unicode) as string)].every((rune) => rune === "e" || rune === "\u0301")).toBe(true)
+  })
+
+  test("blank means absent, not an empty string on the wire", () => {
+    expect(titleOf("   ")).toBeUndefined()
+    expect(titleOf(undefined)).toBeUndefined()
+    expect(titleOf(42)).toBeUndefined()
+  })
+
+  test("a detail update that changes nothing leaves the record clean", async () => {
+    const root = tempRoot()
+    const spool = new Spool(root)
+    await spool.prepare()
+    const registry = new PeerRegistry(spool)
+    registry.observe("ses_one")
+    registry.setDetail("ses_one", { title: "same", cwd: "/same" })
+    await registry.flush(0)
+    const before = read(spool.ownerPath(registry.ids()[0] as string)).last_seen as number
+    registry.setDetail("ses_one", { title: "same", cwd: "/same" })
+    await registry.flush(5000)
+    expect(read(spool.ownerPath(registry.ids()[0] as string)).last_seen).toBe(before)
+  })
+})
+
 describe("working directory", () => {
   test("survives the round trip through a presence record", async () => {
     const root = tempRoot()
     const spool = new Spool(root)
     await spool.prepare()
-    const registry = new PeerRegistry(spool, "opencode", { cwd: "/home/u/src/maki-peer" })
+    const registry = new PeerRegistry(spool)
     registry.observe("ses_one")
+    registry.setDetail("ses_one", { cwd: "/home/u/src/maki-peer" })
     await registry.flush(0)
     const id = registry.ids()[0] as string
     expect(read(spool.ownerPath(id)).cwd).toBe("/home/u/src/maki-peer")
     expect((await registry.all())[0]?.cwd).toBe("/home/u/src/maki-peer")
+  })
+
+  test("is per session, so two sessions of one host can differ", async () => {
+    const root = tempRoot()
+    const spool = new Spool(root)
+    await spool.prepare()
+    const registry = new PeerRegistry(spool)
+    registry.observe("ses_one")
+    registry.observe("ses_two")
+    registry.setDetail("ses_one", { cwd: "/home/u/src/a" })
+    registry.setDetail("ses_two", { cwd: "/home/u/src/b" })
+    await registry.flush(0)
+    const paths = (await registry.all()).map((owner) => owner.cwd)
+    expect(paths.sort()).toEqual(["/home/u/src/a", "/home/u/src/b"])
   })
 
   test("is absent when the host cannot report one", async () => {

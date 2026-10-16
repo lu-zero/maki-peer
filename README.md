@@ -121,6 +121,28 @@ peer ignores `session` on a message whose `origin.host` is not `maki` and
 routes it to the focused session instead. That rule is what lets another host
 share the same spool without knowing anything about maki sessions.
 
+Each peer names itself from its own peer id, `maki-6ac003` and
+`opencode-072f28`, so a name is stable and needs no configuration. The session
+title travels alongside as an optional `title` field, which is what you set
+when you want a peer to carry a role rather than an id. A title is data from
+another agent, not an instruction.
+
+A peer's `status`, `cwd` and `title` come from the session itself, not from
+guessing. The two halves differ in how they read them and in what one record
+covers:
+
+- Maki is one record per process and reads `maki.session.read()`. Because a
+  process can hold several sessions, `cwd` and `title` describe the focused
+  session, which is the one peer messages are delivered into.
+- OpenCode is one record per session and reads `session.get`. Its `cwd` and
+  `title` are that session's own.
+
+Both fields are authoritative for what they report. `(same dir)` compares the
+peer's `cwd` after trimming trailing slashes, and is a directory comparison
+only: two worktrees of one repository are not the same directory, and neither
+is a subdirectory of a monorepo. `peer_broadcast` takes `same_dir_only` to
+reach only the peers sharing that directory.
+
 A message addressed to a session that is no longer live is dropped and logged
 rather than retried, because no later poll can deliver it. A message with no
 address is retried, since a focused session may come back. Delivery is at
