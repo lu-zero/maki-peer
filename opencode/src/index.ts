@@ -258,7 +258,7 @@ export default Plugin.define({
           if (!args.peer_id) throw new Error("peer_id is required")
           if (!args.message) throw new Error("message is required")
           const kind = args.kind === "status" ? "status" : "observation"
-          const resolved = resolvePeer(await registry.records(), args.peer_id)
+          const resolved = resolvePeer(await registry.records(), args.peer_id, undefined, new Set(registry.ids()))
           if ("error" in resolved) throw new Error(resolved.error)
           const result = await queue(resolved.peer, args.message, kind, context.sessionID, args.session)
           if ("error" in result) throw new Error(result.error)
@@ -318,7 +318,7 @@ export default Plugin.define({
             await reply("Usage: /peer send <peer> <message>")
             return
           }
-          const resolved = resolvePeer(await registry.records(), rest.slice(0, cut))
+          const resolved = resolvePeer(await registry.records(), rest.slice(0, cut), undefined, new Set(registry.ids()))
           if ("error" in resolved) {
             await reply(`Could not send peer message: ${resolved.error}`)
             return
