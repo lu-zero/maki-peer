@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, renameSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -323,17 +323,19 @@ describe("delivery", () => {
     expect(inbox(root, host.peerID)).toEqual([])
   })
 
-  test("a record addressed to another peer is left untouched", async () => {
+  test("a record addressed to another peer is dropped rather than looped over forever", async () => {
     const root = tempRoot()
     const host = fakeHost(root, "opencode", "ses_oc_one")
     await host.pump()
     writeRecord(root, host.peerID, makiRecord({ id: "m1", from: "peer-maki", to: "someone-else", body: "not mine" }))
     await host.pump()
     expect(host.delivered).toEqual([])
-    expect(inbox(root, host.peerID)).toEqual(["m1.json"])
+    // A misfiled record can never be delivered by any poller, since each reads
+    // only its own inbox, so leaving it would re-read it every pass forever.
+    expect(inbox(root, host.peerID)).toEqual([])
   })
 
-  test("a message already queued is not lost when the reader sees it mid-write", async () => {
+  test("a torn file is dropped rather than looped over, because both writers are atomic", async () => {
     const root = tempRoot()
     const host = fakeHost(root, "opencode", "ses_oc_one")
     await host.pump()
@@ -342,7 +344,7 @@ describe("delivery", () => {
     writeFileSync(path, "{partial")
     await host.pump()
     expect(host.delivered).toEqual([])
-    expect(files(join(root, "inboxes", host.peerID))).toEqual(["m1.json"])
+    expect(files(join(root, "inboxes", host.peerID))).toEqual([])
   })
 })
 
@@ -827,5 +829,66 @@ describe("mark and sweep", () => {
     const report = await sweepStaleOwners({ spool, records: [], ownIDs: new Set(), now })
     expect(report.deleted).toBe(1)
     expect(await records()).toEqual([])
+  })
+})
+
+describe("claims", () => {
+  const claimPath = (r: string, peerID: string, name: string, instance: string) =>
+    join(r, "inboxes", peerID, `${name}.json.${instance}.claim`)
+
+  test("a claimed message is invisible to another poller, which is the whole point", async () => {
+    const r = tempRoot()
+    const mine = fakeHost(r, "opencode", "ses_claimer")
+    const path = join(r, "inboxes", mine.peerID, "m1.json")
+    mkdirSync(join(r, "inboxes", mine.peerID), { recursive: true })
+    writeFileSync(path, JSON.stringify(makiRecord({ id: "m1", from: "peer-maki", to: mine.peerID, body: "once" })))
+    // The other poller claimed it first and is mid delivery.
+    const claimed = claimPath(r, mine.peerID, "m1", "opencode-other-1")
+    renameSync(path, claimed)
+
+    await mine.pump()
+    expect(mine.delivered).toEqual([])
+    expect(existsSync(claimed)).toBe(true)
+  })
+
+  test("an abandoned claim goes back to the queue once it is old enough", async () => {
+    const r = tempRoot()
+    const mine = fakeHost(r, "opencode", "ses_claimer")
+    const claimed = claimPath(r, mine.peerID, "m1", "opencode-dead-1")
+    mkdirSync(join(r, "inboxes", mine.peerID), { recursive: true })
+    writeFileSync(claimed, JSON.stringify(makiRecord({ id: "m1", from: "peer-maki", to: mine.peerID, body: "once" })))
+    // Nothing has held this claim for a long time: its poller is gone.
+    const stale = new Date(Date.now() - 120_000)
+    utimesSync(claimed, stale, stale)
+
+    await mine.pump()
+    expect(mine.delivered.map((item) => item.text)).toEqual(["[peer peer-maki] once"])
+    expect(existsSync(claimed)).toBe(false)
+  })
+
+  test("a fresh claim is never stolen, so exclusivity outlives a slow delivery", async () => {
+    const r = tempRoot()
+    const mine = fakeHost(r, "opencode", "ses_claimer")
+    const claimed = claimPath(r, mine.peerID, "m1", "opencode-other-1")
+    mkdirSync(join(r, "inboxes", mine.peerID), { recursive: true })
+    writeFileSync(claimed, JSON.stringify(makiRecord({ id: "m1", from: "peer-maki", to: mine.peerID, body: "once" })))
+
+    await mine.pump()
+    expect(mine.delivered).toEqual([])
+    expect(existsSync(claimed)).toBe(true)
+  })
+
+  test("a delivery that asks to retry goes back to the queue for any poller", async () => {
+    const r = tempRoot()
+    const mine = fakeHost(r, "opencode", "ses_claimer")
+    mine.deliverOverride = () => "retry"
+    writeRecord(r, mine.peerID, makiRecord({ id: "m1", from: "peer-maki", to: mine.peerID, body: "once" }))
+    await mine.pump()
+    expect(files(join(r, "inboxes", mine.peerID))).toEqual(["m1.json"])
+
+    mine.deliverOverride = undefined
+    await mine.pump()
+    expect(mine.delivered.map((item) => item.text)).toEqual(["[peer peer-maki] once"])
+    expect(inbox(r, mine.peerID)).toEqual([])
   })
 })

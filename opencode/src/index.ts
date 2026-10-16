@@ -158,6 +158,7 @@ export default Plugin.define({
         const report = await receiveOnce({
           spool,
           peerID: peer.id,
+          instance: processInstance(),
           addressing: { ownSession: sessionID, owns: (id) => registry.has(id) },
           deliver,
           onDrop: (message, reason) => log("warn", `dropped ${message.id}: ${reason}`),
