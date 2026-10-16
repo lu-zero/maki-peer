@@ -49,11 +49,13 @@ export class PeerRegistry {
   private readonly spool: Spool
   private readonly label: string
   private readonly cwd?: string
+  private readonly instance?: string
 
-  constructor(spool: Spool, label = "opencode", cwd?: string) {
+  constructor(spool: Spool, label = "opencode", opts: { cwd?: string; instance?: string } = {}) {
     this.spool = spool
     this.label = label
-    this.cwd = cwd
+    this.cwd = opts.cwd
+    this.instance = opts.instance
   }
 
   observe(sessionID: string, model?: string): LivePeer | undefined {
@@ -75,6 +77,21 @@ export class PeerRegistry {
     }
     if (model) peer.model = model
     this.live.set(sessionID, peer)
+    return peer
+  }
+
+  /**
+   * Take a session back after a reload. A host that lists sessions hands us
+   * this for free on setup; opencode does not, so the records this instance
+   * wrote before are the only evidence that a session is still running. Status
+   * starts idle because the reload lost it, and the next event corrects it.
+   */
+  adopt(sessionID: string, record: Owner): LivePeer | undefined {
+    if (!validId(sessionID)) return undefined
+    const peer = this.observe(sessionID, record.model)
+    if (!peer) return undefined
+    peer.started = record.started
+    peer.dirty = true
     return peer
   }
 
@@ -125,17 +142,33 @@ export class PeerRegistry {
     }
   }
 
+  /**
+   * Take back the sessions this instance published before a reload. A reload
+   * starts with an empty registry, and opencode offers no way to list sessions,
+   * so these records are the only evidence that a session is still running.
+   * Without this an idle session stays invisible to every peer and never drains
+   * its own inbox, which is what a reload used to cause.
+   *
+   * Only records stamped with this instance are taken, so two servers sharing a
+   * spool cannot adopt each other's sessions and deliver to them twice.
+   */
+  reclaim(records: Owner[]): number {
+    if (!this.instance) return 0
+    let taken = 0
+    for (const record of records) {
+      if (record.instance !== this.instance || !record.session_id) continue
+      if (this.live.has(record.session_id)) continue
+      if (this.adopt(record.session_id, record)) taken++
+    }
+    return taken
+  }
+
+  /** Retire a session that no longer exists, so no message can be sent to it. */
   async retire(sessionID: string): Promise<void> {
     const peer = this.live.get(sessionID)
     if (!peer) return
     this.live.delete(sessionID)
     await this.spool.remove(this.spool.ownerPath(peer.id)).catch(() => {})
-  }
-
-  /** Retire every session. Used on teardown, where awaiting is not possible. */
-  retireAllSync(): void {
-    for (const peer of this.live.values()) this.spool.removeSync(this.spool.ownerPath(peer.id))
-    this.live.clear()
   }
 
   /**
@@ -193,6 +226,8 @@ export class PeerRegistry {
       status: peerStatus(peer),
       ...(peer.model ? { model: peer.model } : {}),
       ...(this.cwd ? { cwd: this.cwd } : {}),
+      ...(this.instance ? { instance: this.instance } : {}),
+      session_id: peer.sessionID,
       origin: { host: ORIGIN_HOST },
     }
   }
@@ -200,6 +235,11 @@ export class PeerRegistry {
 
 export function newMessageId(peerID: string): string {
   return `${peerID}-${randomBytes(6).toString("hex")}`
+}
+
+/** Identifies this plugin instance across reloads. */
+export function newInstanceId(): string {
+  return `${ORIGIN_HOST}-${randomBytes(8).toString("hex")}`
 }
 
 /** `name [id]`, the pair every peer-facing message quotes a peer as. */
@@ -258,9 +298,9 @@ export function resolvePeer(records: Owner[], target: string, now = Math.floor(D
  * marks the session that asked, which `local` alone cannot: both opencode
  * sessions on one host are local, and neither knows which one is reading.
  *
- * `cwd` is the directory a host was started in, not the tree a session is
- * working in, which is why the flag says same dir. Two projects served by one
- * opencode server share a cwd and are reported as one tree.
+ * `cwd` is the directory the host reports for this session. A host is always in
+ * its own directory, so `same dir` is left off the reader: it only says
+ * something about a peer.
  */
 export function formatPeerLines(
   peers: Owner[],
@@ -271,7 +311,7 @@ export function formatPeerLines(
     const flags: string[] = []
     if (mine && peer.id === mine) flags.push("you")
     if (self.ids.has(peer.id)) flags.push("local")
-    if (sameTree(peer, self)) flags.push("same dir")
+    if (sameTree(peer, self) && !flags.includes("you")) flags.push("same dir")
     const suffix = flags.length === 0 ? "" : `  (${flags.join(")  (")})`
     const model = peer.model ?? "-"
     return `- ${peer.id}  ${peer.status}  ${model}  ${peer.name}  via ${peer.origin?.host ?? "maki"}${suffix}`

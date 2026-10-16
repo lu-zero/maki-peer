@@ -500,6 +500,12 @@ describe("peer list lines", () => {
     expect(lines[2]).toEndWith("  via opencode")
   })
 
+  test("leaves same dir off the reader, who is always in their own", () => {
+    const mine = { ...oc, id: peerIdFor("ses_me"), cwd: "/home/u" }
+    const lines = formatPeerLines([mine], { ids: new Set([mine.id]), cwd: "/home/u", sessionID: "ses_me" })
+    expect(lines[0]).toEndWith("  (you)  (local)")
+  })
+
   test("marks the session that asked, which local cannot single out", () => {
     const mine = { ...oc, id: peerIdFor("ses_me"), cwd: "/home/u" }
     const sibling = { ...oc, id: peerIdFor("ses_other") }
@@ -527,7 +533,7 @@ describe("working directory", () => {
     const root = tempRoot()
     const spool = new Spool(root)
     await spool.prepare()
-    const registry = new PeerRegistry(spool, "opencode", "/home/u/src/maki-peer")
+    const registry = new PeerRegistry(spool, "opencode", { cwd: "/home/u/src/maki-peer" })
     registry.observe("ses_one")
     await registry.flush(0)
     const id = registry.ids()[0] as string
@@ -550,5 +556,73 @@ describe("working directory", () => {
     expect(sameTree({ cwd: "/a/b" }, { cwd: "/a/c" })).toBe(false)
     expect(sameTree({ cwd: "/a/b" }, {})).toBe(false)
     expect(sameTree({}, {})).toBe(false)
+  })
+})
+
+describe("surviving a reload", () => {
+  const publish = async (root: string, instance: string, sessionID: string) => {
+    const spool = new Spool(root)
+    await spool.prepare()
+    const registry = new PeerRegistry(spool, "opencode", { instance })
+    registry.observe(sessionID, "opencode/space-bunny-free")
+    await registry.flush(0)
+    return spool
+  }
+
+  test("takes a session back from its own record", async () => {
+    const root = tempRoot()
+    const spool = await publish(root, "opencode-abc", "ses_quiet")
+
+    // A reload is a new registry over the same spool with nothing observed.
+    const after = new PeerRegistry(spool, "opencode", { instance: "opencode-abc" })
+    expect(after.sessions()).toEqual([])
+    expect(after.reclaim(await after.records())).toBe(1)
+
+    expect(after.sessions()).toEqual(["ses_quiet"])
+    expect(after.idFor("ses_quiet")).toBe(peerIdFor("ses_quiet"))
+    await after.flush(0)
+    expect(owners(root)).toEqual([`${peerIdFor("ses_quiet")}.json`])
+  })
+
+  test("keeps the uptime the session had before the reload", async () => {
+    const root = tempRoot()
+    const spool = await publish(root, "opencode-abc", "ses_quiet")
+    const before = read(spool.ownerPath(peerIdFor("ses_quiet"))).started as number
+
+    const after = new PeerRegistry(spool, "opencode", { instance: "opencode-abc" })
+    after.reclaim(await after.records())
+    expect(after.get("ses_quiet")?.started).toBe(before)
+  })
+
+  test("leaves another instance's sessions alone", async () => {
+    const root = tempRoot()
+    await publish(root, "opencode-other", "ses_theirs")
+    const mine = new PeerRegistry(new Spool(root), "opencode", { instance: "opencode-mine" })
+    expect(mine.reclaim(await mine.records())).toBe(0)
+    expect(mine.sessions()).toEqual([])
+  })
+
+  test("ignores its own older records, which name no session", async () => {
+    const root = tempRoot()
+    const spool = new Spool(root)
+    await spool.prepare()
+    await spool.write(spool.ownerPath("oc-old"), {
+      protocol: 1,
+      id: "oc-old",
+      name: "opencode:older",
+      started: 1,
+      last_seen: Math.floor(Date.now() / 1000),
+      status: "idle",
+      instance: "opencode-abc",
+    })
+    const registry = new PeerRegistry(spool, "opencode", { instance: "opencode-abc" })
+    expect(registry.reclaim(await registry.records())).toBe(0)
+  })
+
+  test("reclaims nothing when the instance cannot be identified", async () => {
+    const root = tempRoot()
+    const spool = await publish(root, "opencode-abc", "ses_quiet")
+    const anon = new PeerRegistry(spool)
+    expect(anon.reclaim(await anon.records())).toBe(0)
   })
 })

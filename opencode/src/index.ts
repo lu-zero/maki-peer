@@ -2,11 +2,31 @@ import { Plugin } from "@opencode/plugin"
 import { join } from "node:path"
 
 import { ORIGIN_HOST, OWNER_REFRESH_MS, POLL_MS, sameTree, validId, type Owner, type PeerMessage } from "./protocol.js"
-import { applyEventAsync, formatPeerLines, messageRecord, newMessageId, PeerRegistry, resolvePeer, type EventData } from "./peer.js"
+import { applyEventAsync, formatPeerLines, messageRecord, newInstanceId, newMessageId, PeerRegistry, resolvePeer, type EventData } from "./peer.js"
 import { encodeBody, receiveOnce, type DeliveryOutcome } from "./receive.js"
 import { resolveSpoolRoot, Spool } from "./spool.js"
 
 const TOOL_NAMESPACE = "peer"
+
+const INSTANCE_SLOT = Symbol.for("maki-peer/instance")
+
+/**
+ * An id for this process's plugin instance, stable across a reload.
+ *
+ * It deliberately is not kept in host storage: one opencode host runs the plugin
+ * in more than one process, and those processes share storage, so a stored id
+ * would be the same in both. One of them would then adopt the other one's
+ * sessions on reload and poll an inbox that is not its own. A per-process id
+ * survives the reload it exists for and is never shared.
+ */
+function processInstance(): string {
+  const held = globalThis as unknown as Record<symbol, unknown>
+  const existing = held[INSTANCE_SLOT]
+  if (typeof existing === "string" && existing !== "") return existing
+  const fresh = `${ORIGIN_HOST}-${process.pid}-${newInstanceId()}`
+  held[INSTANCE_SLOT] = fresh
+  return fresh
+}
 
 type Options = {
   spoolRoot?: string
@@ -33,13 +53,15 @@ export default Plugin.define({
   async setup(ctx) {
     const options = (ctx.options ?? {}) as Options
     const spool = new Spool(resolveSpoolRoot(options))
-    // The directory the host was started in. opencode exposes no per-session
-    // working directory, so for this host that is the server directory, which
-    // two projects served by one server share. It is reported as same dir for
-    // that reason, and the maki half can be more precise than this one.
-    const cwd = ctx.location.directory || ctx.location.project.directory
-    const registry = new PeerRegistry(spool, "opencode", cwd)
+    // The directory opencode reports for this session. It has been observed to be
+    // the session's own working directory rather than anything project wide.
+    // No cwd here on purpose. The directory opencode reports differs between the
+    // processes that host this plugin, and they all write the same record, so a
+    // published directory flips between values every poll. A peer that cannot
+    // name its tree reliably is better silent than wrong.
     const announce = options.announce !== false
+    const instance = announce ? processInstance() : undefined
+    const registry = new PeerRegistry(spool, "opencode", { instance })
 
     const log = (level: "info" | "warn" | "error", text: string) => {
       const line = `maki-peer: ${text}`
@@ -49,6 +71,13 @@ export default Plugin.define({
     }
 
     await spool.prepare()
+
+    // A reload leaves an empty registry, so the sessions this instance had are
+    // taken back from the records it wrote before.
+    if (instance) {
+      const reclaimed = registry.reclaim(await registry.records())
+      if (reclaimed > 0) log("info", `reclaimed ${reclaimed} session(s) from a previous load`)
+    }
 
     const deliver = async (message: PeerMessage, sessionID: string): Promise<DeliveryOutcome> => {
       await ctx.session.synthetic({
@@ -96,16 +125,16 @@ export default Plugin.define({
       }
     })()
 
-    const self = () => ({ ids: new Set(registry.ids()), cwd })
+    const self = (): { ids: Set<string>; cwd?: string } => ({ ids: new Set(registry.ids()) })
 
     const listOutput = async (sessionID?: string): Promise<string> =>
       formatPeerLines(await registry.all(), { ...self(), sessionID }).join("\n")
 
     /** Broadcast targets, resolved in one pass instead of rescanning per peer. */
-    const broadcastTargets = async (repoOnly: boolean): Promise<Owner[]> => {
+    const broadcastTargets = async (sameDirOnly: boolean): Promise<Owner[]> => {
       const mine = registry.ids()
       const peers = await registry.all()
-      return peers.filter((peer) => !mine.includes(peer.id) && (!repoOnly || sameTree(peer, self())))
+      return peers.filter((peer) => !mine.includes(peer.id) && (!sameDirOnly || sameTree(peer, self())))
     }
 
     const queue = async (
@@ -181,7 +210,10 @@ export default Plugin.define({
             message: { type: "string", description: "Observation to deliver" },
             session: { type: "string", description: "Optional session id on the receiving host" },
             kind: { type: "string", enum: ["observation", "status"] },
-            same_dir_only: { type: "boolean", description: "Only peers started in the same directory" },
+            same_dir_only: {
+              type: "boolean",
+              description: "Only peers reporting the same directory, where this host reports one",
+            },
           },
           required: ["message"],
           additionalProperties: false,
@@ -190,11 +222,15 @@ export default Plugin.define({
           const args = readArgs(input)
           if (!args.message) throw new Error("message is required")
           const kind = args.kind === "status" ? "status" : "observation"
-          const targets = await broadcastTargets(args.same_dir_only === true)
+          const sameDirOnly = args.same_dir_only === true
+          const targets = await broadcastTargets(sameDirOnly)
           let queued = 0
           for (const peer of targets) {
             const result = await queue(peer, args.message, kind, context.sessionID, args.session)
             if (!("error" in result)) queued++
+          }
+          if (queued === 0 && sameDirOnly) {
+            return { content: "Queued 0 peer messages. This host reports no directory, so same_dir_only matched no peer." }
           }
           return { content: `Queued ${queued} peer messages.` }
         },
@@ -232,7 +268,9 @@ export default Plugin.define({
     return () => {
       clearInterval(timer)
       controller.abort()
-      registry.retireAllSync()
+      // Records are deliberately left on the spool. This runs on every reload,
+      // and erasing here is what made a live session vanish from every peer
+      // list. A host that really exits goes stale on its own.
     }
   },
 })

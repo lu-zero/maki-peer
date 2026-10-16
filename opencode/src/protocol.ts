@@ -28,6 +28,14 @@ export type Owner = {
   model?: string
   /** Project root the host works in. Absent on a host that cannot report one. */
   cwd?: string
+  /**
+   * Identifies the plugin instance that wrote the record, so a reload can take
+   * its own sessions back. Stable across reloads, so it is only ever compared
+   * against records from the same host.
+   */
+  instance?: string
+  /** The session this peer is, in the writing host's own id format. */
+  session_id?: string
   origin?: { host?: unknown }
 }
 
@@ -71,6 +79,8 @@ export function parseOwner(value: unknown): Owner | undefined {
     status: typeof value.status === "string" ? value.status : "idle",
     ...(typeof value.model === "string" ? { model: value.model } : {}),
     ...(typeof value.cwd === "string" && value.cwd !== "" ? { cwd: value.cwd } : {}),
+    ...(typeof value.instance === "string" && value.instance !== "" ? { instance: value.instance } : {}),
+    ...(typeof value.session_id === "string" && value.session_id !== "" ? { session_id: value.session_id } : {}),
     ...(isRecord(value.origin) ? { origin: { host: value.origin.host } } : {}),
   }
 }
