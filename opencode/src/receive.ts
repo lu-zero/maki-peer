@@ -137,10 +137,30 @@ export async function receiveOnce(input: {
       report.taken++
       continue
     }
-    const message = parseMessage(await spool.read(claimPath), peerID)
-    if (!message) {
-      // Unparsable cannot go back to the queue, where it would be claimed and
+    const text = await spool.readText(claimPath).catch(() => undefined)
+    if (text === undefined) {
+      // A claim we cannot read is transient, not a bad record: permissions, or a
+      // reader ahead of a writer on a foreign host. Dropping here would lose a
+      // good message, so it goes back to the queue for a later pass.
+      await unclaim(spool, claimPath)
+      report.retried++
+      continue
+    }
+    let value: unknown
+    try {
+      value = JSON.parse(text)
+    } catch {
+      // Both writers are atomic, so truncated means torn means never going to
+      // parse. It cannot go back to the queue, where it would be claimed and
       // rejected every pass forever, so it is dropped and counted.
+      await spool.remove(claimPath).catch(() => {})
+      report.dropped++
+      continue
+    }
+    const message = parseMessage(value, peerID)
+    if (!message) {
+      // Well formed JSON that is not a message for us: same reasoning as a
+      // decode failure, and the same answer.
       await spool.remove(claimPath).catch(() => {})
       report.dropped++
       continue

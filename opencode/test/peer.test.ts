@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, renameSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -890,5 +890,40 @@ describe("claims", () => {
     await mine.pump()
     expect(mine.delivered.map((item) => item.text)).toEqual(["[peer peer-maki] once"])
     expect(inbox(r, mine.peerID)).toEqual([])
+  })
+
+  test("an unreadable claim survives passes and delivers once it can be read", async () => {
+    const r = tempRoot()
+    const mine = fakeHost(r, "opencode", "ses_claimer")
+    mine.deliverOverride = () => "retry"
+    writeRecord(r, mine.peerID, makiRecord({ id: "m1", from: "peer-maki", to: mine.peerID, body: "later" }))
+    const path = join(r, "inboxes", mine.peerID, "m1.json")
+    chmodSync(path, 0o000)
+
+    // A read failure is transient, so the record goes back to the queue rather
+    // than being dropped, and several passes in a row do not lose it.
+    await mine.pump()
+    await mine.pump()
+    expect(mine.delivered).toEqual([])
+    expect(files(join(r, "inboxes", mine.peerID))).toEqual(["m1.json"])
+
+    chmodSync(path, 0o644)
+    mine.deliverOverride = undefined
+    await mine.pump()
+    expect(mine.delivered.map((item) => item.text)).toEqual(["[peer peer-maki] later"])
+  })
+
+  test("another poller's fresh claim is never read, so its content is never this poller's problem", async () => {
+    const r = tempRoot()
+    const mine = fakeHost(r, "opencode", "ses_claimer")
+    const claimed = claimPath(r, mine.peerID, "m1", "opencode-other-1")
+    mkdirSync(join(r, "inboxes", mine.peerID), { recursive: true })
+    // Torn on purpose: if this poller read or deleted another poller's fresh
+    // claim, it would be destroying a delivery that is still in flight.
+    writeFileSync(claimed, "{partial")
+
+    await mine.pump()
+    expect(mine.delivered).toEqual([])
+    expect(files(join(r, "inboxes", mine.peerID))).toEqual([`${claimed.slice(claimed.lastIndexOf("/") + 1)}`])
   })
 })

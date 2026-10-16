@@ -90,6 +90,17 @@ export class Spool {
     }
   }
 
+  /**
+   * Throws on a read failure, unlike read. The difference matters where a
+   * caller has to decide between dropping a record and leaving it for a later
+   * pass: unreadable is transient, unparsable is not.
+   */
+  async readText(path: string): Promise<string> {
+    const info = await stat(path)
+    if (!info.isFile() || info.size > MAX_RECORD_BYTES) throw new Error(`record is not readable: ${path}`)
+    return readFile(path, "utf8")
+  }
+
   async listJson(dir: string): Promise<string[]> {
     const files = await this.listFiles(dir)
     return files.filter((path) => path.endsWith(".json"))
