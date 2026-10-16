@@ -134,7 +134,23 @@ export default Plugin.define({
 
     let ticks = 0
     let detailTicks = 0
+    let polling = false
     const poll = async () => {
+      // Delivering into a busy session can outlive the 500ms tick, and a second
+      // poll started while the first was still reading would deliver the same
+      // inbox twice: receiveOnce reads every pending file before it delivers
+      // the first one. One poller at a time per process; the tick that finds a
+      // poll in flight simply waits for the next.
+      if (polling) return
+      polling = true
+      try {
+        await pollOnce()
+      } finally {
+        polling = false
+      }
+    }
+
+    const pollOnce = async () => {
       if (announce) await registry.flush(OWNER_REFRESH_MS)
       for (const sessionID of registry.sessions()) {
         const peer = registry.get(sessionID)
