@@ -149,9 +149,9 @@ confidence is not.
 
 Two further notes that came out of running both halves against one spool.
 
-Delivery order is not guaranteed, because peers poll independently and each
-delivers when it can. Three probes sent in order arrived as 1, 3, 2. An agent
-that needs an order should put the order in the message.
+Delivery order is not guaranteed. Within a single pass a peer delivers oldest
+first, but passes are independent, so three probes sent in order arrived as 1,
+3, 2. An agent that needs an order should put the order in the message.
 
 Delivery is at least once, and the mechanism differs by half. On Maki one
 process is one peer id and peer ids are allocated with an existence check, so a
