@@ -137,6 +137,16 @@ covers:
 - OpenCode is one record per session and reads `session.get`. Its `cwd` and
   `title` are that session's own.
 
+The same split decides what "self" means. On Maki a process is a peer, so self
+is the process id and a Maki peer cannot reach itself. On OpenCode one host
+holds several sessions and each is its own agent, so self is the session that
+asked: sending to another session of your own host works, sending to your own
+is refused, and a broadcast reaches the others.
+
+Status confidence differs too. Maki reads it from the host, so it is
+authoritative. OpenCode has no per-session read of it and infers it from
+events, so the field is the same and the confidence is not.
+
 Both fields are authoritative for what they report. `(same dir)` compares the
 peer's `cwd` after trimming trailing slashes, and is a directory comparison
 only: two worktrees of one repository are not the same directory, and neither

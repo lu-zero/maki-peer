@@ -411,13 +411,20 @@ local function resolve_target(query)
   if not peers then
     return nil, scan_err
   end
-  local matches = match_peers(query, peers)
+  -- Ours is not a target anywhere in this function. A send to yourself would
+  -- only arrive back in your own session, and the suggestion list already
+  -- refused to offer it, so matching has to agree with that.
+  local others = {}
+  for _, peer in ipairs(peers) do
+    if peer.id ~= runtime.peer_id then
+      others[#others + 1] = peer
+    end
+  end
+  local matches = match_peers(query, others)
   if #matches == 0 then
-    -- Ours is excluded: the suggestion list is who you could send to, and
-    -- sending to yourself is not an answer.
     local live = {}
-    for _, peer in ipairs(peers) do
-      if is_live(peer) and peer.id ~= runtime.peer_id then
+    for _, peer in ipairs(others) do
+      if is_live(peer) then
         live[#live + 1] = peer
       end
     end
@@ -701,17 +708,26 @@ local function receive_messages()
 end
 
 local function poll()
+  -- The body runs inside a pcall and the next tick is scheduled after it, so
+  -- a slow delivery cannot start a second poll on top of this one. Two
+  -- overlapping polls would both read the same inbox and deliver twice, which
+  -- is exactly what the opencode half hit in the field.
+  local ok, err = pcall(function()
+    refresh_session()
+    local owner, owner_err = ensure_registered()
+    if not owner then
+      maki.log.warn("peer registration: " .. owner_err)
+      return
+    end
+    local _, receive_err = receive_messages()
+    if receive_err then
+      maki.log.warn("peer inbox: " .. receive_err)
+    end
+  end)
+  if not ok then
+    maki.log.warn("peer poll: " .. tostring(err))
+  end
   maki.defer_fn(poll, POLL_MS)
-  refresh_session()
-  local owner, owner_err = ensure_registered()
-  if not owner then
-    maki.log.warn("peer registration: " .. owner_err)
-    return
-  end
-  local _, receive_err = receive_messages()
-  if receive_err then
-    maki.log.warn("peer inbox: " .. receive_err)
-  end
 end
 
 local function register_status_autocmds()
