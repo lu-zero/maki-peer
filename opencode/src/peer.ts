@@ -374,13 +374,25 @@ function peerLabels(peers: Owner[]): string {
  * an id. Resolution therefore runs before the id charset check, which names with
  * a colon would fail, and reports the alternatives instead of "not registered",
  * which reads as a peer having exited rather than as a typo.
+ *
+ * A host is not its own peer. Records in `ownIDs` are dropped before matching,
+ * so suggesting yourself as a send target is not an answer, and delivering to
+ * yourself is not a thing a send can do by accident. Broadcast already excluded
+ * the sender; letting send resolve to the sender was the incoherence.
  */
-export function resolvePeer(records: Owner[], target: string, now = Math.floor(Date.now() / 1000)): ResolveResult {
+export function resolvePeer(
+  records: Owner[],
+  target: string,
+  now = Math.floor(Date.now() / 1000),
+  ownIDs: ReadonlySet<string> | string[] = new Set(),
+): ResolveResult {
   const needle = target.trim()
   if (!needle) return { error: "a peer name or id is required" }
   const lower = needle.toLowerCase()
-  const live = records.filter((peer) => now - peer.last_seen <= OWNER_STALE_SECONDS)
-  const dead = records.filter((peer) => now - peer.last_seen > OWNER_STALE_SECONDS)
+  const own = new Set(ownIDs)
+  const others = records.filter((peer) => !own.has(peer.id))
+  const live = others.filter((peer) => now - peer.last_seen <= OWNER_STALE_SECONDS)
+  const dead = others.filter((peer) => now - peer.last_seen > OWNER_STALE_SECONDS)
   const rules: Array<(peer: Owner) => boolean> = [
     (peer) => peer.id === needle,
     (peer) => peer.name === needle,
@@ -404,7 +416,7 @@ export function resolvePeer(records: Owner[], target: string, now = Math.floor(D
     const others = hits.length > 1 ? ` (${hits.length} exited peers match, this is the newest)` : ""
     return { error: `peer ${peerLabel(newest)} last refreshed ${age}s ago; it may have exited${others}` }
   }
-  return { error: `no peer matches "${needle}"; pass one of: ${peerLabels(live)}` }
+  return { error: `no live peer matches "${needle}"; pass one of: ${peerLabels(live)}` }
 }
 
 /**

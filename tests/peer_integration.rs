@@ -463,6 +463,42 @@ fn a_peer_without_a_cwd_is_simply_not_same_dir() {
 }
 
 #[test]
+fn a_title_with_unicode_punctuation_renders_byte_for_byte() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx());
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+
+    // Controls must go, but an en dash and CJK are punctuation and content
+    // respectively, and both must survive untouched.
+    let raw = "Maki\u{2013}OpenCode peer\tcommunication \u{1F4A8} plugin";
+    write_owner(
+        &state,
+        &owner_record("oc-abc123def4567890", "opencode-072f28", 1, None, None),
+    );
+    let mut record = owner_record("oc-abc123def4567890", "opencode-072f28", 1, None, None);
+    record["title"] = json!(raw);
+    fs::write(
+        state.join("peers/owners").join("oc-abc123def4567890.json"),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
+    let _ = raw;
+
+    let out = exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let line = out
+        .lines()
+        .find(|line| line.contains("oc-abc123def4567890"))
+        .unwrap_or_else(|| panic!("got: {out}"));
+    // Punctuation and content survive verbatim. Control characters are
+    // normalised further out by the tool output layer, so they are asserted
+    // absent rather than preserved.
+    assert!(line.contains("Maki\u{2013}OpenCode"), "got: {line}");
+    assert!(line.contains("\u{1F4A8}"), "got: {line}");
+    assert!(!line.contains('\n') && !line.contains('\r'), "got: {line}");
+}
+
+#[test]
 fn same_dir_only_broadcast_skips_peers_in_other_directories() {
     let (_temp, state) = common::isolated_state();
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));

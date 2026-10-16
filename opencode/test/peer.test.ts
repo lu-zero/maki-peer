@@ -445,7 +445,7 @@ describe("peer resolution", () => {
 
   test("answers a typo with the alternatives rather than claiming the peer is gone", () => {
     const result = resolvePeer([oc(), maki()], "3H0d7X", now)
-    expect(error(result)).toStartWith('no peer matches "3H0d7X"')
+    expect(error(result)).toStartWith('no live peer matches "3H0d7X"')
     expect(error(result)).toContain("opencode:3H0d7w [oc-072f2841ee0e9743]")
   })
 
@@ -462,6 +462,17 @@ describe("peer resolution", () => {
 
   test("requires a target", () => {
     expect(error(resolvePeer([oc()], "   ", now))).toBe("a peer name or id is required")
+  })
+
+  test("a host is not its own peer", () => {
+    const mine = { ...oc(), id: "oc-self", name: "opencode-self" }
+    // Resolution drops it, so sending to yourself is refused rather than looping
+    // a message back into your own session.
+    expect(error(resolvePeer([mine, maki()], "oc-self", now, new Set(["oc-self"])))).toContain("maki-peer-6acbcdda")
+    // And it is not offered as an answer to anybody else's typo either.
+    const suggestions = error(resolvePeer([mine, maki()], "zzz", now, new Set(["oc-self"])))
+    expect(suggestions).not.toContain("opencode-self")
+    expect(suggestions).toContain("maki-peer-6acbcdda")
   })
 
   test("never turns an exited pile into a wall of text", () => {

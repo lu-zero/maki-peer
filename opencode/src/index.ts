@@ -195,11 +195,22 @@ export default Plugin.define({
       formatPeerLines(await registry.all(), { ...self(), sessionID }).join("\n")
 
     /** Broadcast targets, resolved in one pass instead of rescanning per peer. */
-    const broadcastTargets = async (sameDirOnly: boolean): Promise<Owner[]> => {
-      const mine = registry.ids()
-      const peers = await registry.all()
-      return peers.filter((peer) => !mine.includes(peer.id) && (!sameDirOnly || sameTree(peer, self())))
-    }
+    /**
+ * The peer id of the session that asked, and only that one. A host tracks every
+ * session at its location, so "self" cannot be the registry: two sessions of one
+ * server are different agents, and they talk to each other all day. Excluding
+ * the whole host from a send would make that impossible.
+ */
+const ownID = (sessionID?: string): string[] => {
+  const id = sessionID ? registry.idFor(sessionID) : undefined
+  return id ? [id] : []
+}
+
+const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: boolean): Promise<Owner[]> => {
+  const mine = ownID(fromSessionID)
+  const peers = await registry.all()
+  return peers.filter((peer) => !mine.includes(peer.id) && (!sameDirOnly || sameTree(peer, self())))
+}
 
     const queue = async (
       target: Owner,
@@ -258,7 +269,7 @@ export default Plugin.define({
           if (!args.peer_id) throw new Error("peer_id is required")
           if (!args.message) throw new Error("message is required")
           const kind = args.kind === "status" ? "status" : "observation"
-          const resolved = resolvePeer(await registry.records(), args.peer_id)
+          const resolved = resolvePeer(await registry.records(), args.peer_id, undefined, ownID(context.sessionID))
           if ("error" in resolved) throw new Error(resolved.error)
           const result = await queue(resolved.peer, args.message, kind, context.sessionID, args.session)
           if ("error" in result) throw new Error(result.error)
@@ -287,7 +298,7 @@ export default Plugin.define({
           if (!args.message) throw new Error("message is required")
           const kind = args.kind === "status" ? "status" : "observation"
           const sameDirOnly = args.same_dir_only === true
-          const targets = await broadcastTargets(sameDirOnly)
+          const targets = await broadcastTargets(context.sessionID, sameDirOnly)
           let queued = 0
           for (const peer of targets) {
             const result = await queue(peer, args.message, kind, context.sessionID, args.session)
@@ -318,7 +329,7 @@ export default Plugin.define({
             await reply("Usage: /peer send <peer> <message>")
             return
           }
-          const resolved = resolvePeer(await registry.records(), rest.slice(0, cut))
+          const resolved = resolvePeer(await registry.records(), rest.slice(0, cut), undefined, ownID(sessionID))
           if ("error" in resolved) {
             await reply(`Could not send peer message: ${resolved.error}`)
             return
