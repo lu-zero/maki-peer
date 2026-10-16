@@ -12,24 +12,42 @@ it matches what the Maki side already does.
 
 ## Install
 
-From a checkout of this repository:
+From a checkout, run `bun install` in `opencode/` first so `@opencode/plugin`
+resolves next to the entrypoint, then point a one-line file at it:
 
-```jsonc title="opencode.jsonc"
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugins": ["../maki-peer/opencode"]
-}
+```ts title="~/.config/opencode/plugins/maki-peer.ts"
+export { default } from "/absolute/path/to/maki-peer/opencode/src/index.ts"
 ```
 
-Or install it pinned to a commit, with no publish step:
+Only a bare `.ts` or `.js` file in a discovery directory loads. A package
+directory does not, whether it is named in the `plugins` array by absolute
+path, by relative path, or placed inside `.opencode/plugins/`. OpenCode 2.0.29
+and 2.0.30 both fail those forms silently: no warning, no log line, and no
+entry in `opencode plugin list`, which lists package plugins only. A
+`plugins` array entry that reads correctly can therefore leave the plugin
+simply absent.
+
+Do not reach for a symlink of the package directory. A symlinked directory
+reports itself as a link rather than a directory, so discovery skips it. A
+symlinked `.ts` file is fine.
+
+## Verify
+
+There is no reliable read-only check, so watch the spool instead. The plugin
+registers a peer per session and refreshes it about every two seconds:
 
 ```sh
-opencode plugin add 'github:lu-zero/maki-peer::path:opencode'
+ls ~/.local/state/maki/peers/owners/ | grep '^oc-'
 ```
 
-`opencode plugin check` and `opencode plugin update` manage the installed
-version. An entry pinned to a full commit hash stays put; an unpinned one is
-checked for updates in the background.
+Each file is one live session, named `opencode:<last six of the session id>`.
+If nothing appears, the plugin did not load, and the usual cause is the shim
+path above.
+
+A restarting server briefly disappears from every peer's list. Unload removes
+this host's presence records, and they reappear within a couple of seconds.
+A peer id is derived from the session id, so a session that comes back keeps
+the same id.
 
 ## Use
 
@@ -44,7 +62,7 @@ Tools:
 
 - `peer_list` lists every local Maki and OpenCode instance with its host,
   status, and model.
-- `peer_send` sends one observation to one peer.
+- `peer_send` sends an observation to one peer.
 - `peer_broadcast` sends one observation to every other peer.
 
 ## Session addressing
@@ -66,27 +84,36 @@ guess anywhere in this plugin.
 
 ## Registration
 
-OpenCode's plugin context has no session listing, so a session becomes a peer
-the first time this plugin sees an event for it: `session.created`,
-`session.status`, `session.idle`, `session.viewed`, `session.model.selected`,
-or a permission request. A session that already existed and has not moved
-since the plugin loaded will not appear until one of those happens.
+OpenCode's plugin context has no session listing, so sessions are discovered
+from the event stream. Any event carrying a session id registers that session
+as a peer, which covers every flow.
 
-Status maps from OpenCode's `SessionStatus` onto the three states Maki
-aggregates:
+Do not narrow this to a list of lifecycle events. `session.created`,
+`session.status`, `session.idle` and `session.viewed` appear in the OpenAPI
+schema but are not emitted in practice: a headless `opencode run` produces
+`session.inbox.enqueued`, `session.execution.started`, the `session.step`
+family and `session.execution.succeeded`, and none of those lifecycle events.
+Liveness comes from the execution events.
 
-| OpenCode              | Maki          |
-| --------------------- | ------------- |
-| `idle`                | `idle`        |
-| `busy`                | `working`     |
-| `retry`               | `needs_input` |
-| permission requested  | `needs_input` |
+Status maps onto the three states Maki aggregates:
+
+| Source                              | Maki          |
+| ----------------------------------- | ------------- |
+| nothing running                     | `idle`        |
+| `session.execution.started`         | `working`     |
+| `permission.asked`                  | `needs_input` |
+| `session.status` with `retry`       | `needs_input` |
+| `session.status` with `busy`        | `working`     |
+| `session.status` with `idle`        | `idle`        |
+
+`needs_input` outranks `working`, so a permission request during a run still
+reads as needing the user.
 
 ## Develop
 
 ```sh
 bun install
-bun test          # spool, presence, and delivery rules
+bun test          # spool, presence, event folding, and delivery rules
 bunx tsc --noEmit # types
 ```
 

@@ -40,20 +40,17 @@ A checkout can also be placed in the local pack directory:
 
 ### OpenCode
 
-From a checkout:
+From a checkout, run `bun install` in `opencode/`, then point a one-line file
+at the entrypoint:
 
-```jsonc title="opencode.jsonc"
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugins": ["../maki-peer/opencode"]
-}
+```ts title="~/.config/opencode/plugins/maki-peer.ts"
+export { default } from "/absolute/path/to/maki-peer/opencode/src/index.ts"
 ```
 
-Or pinned to a commit, with nothing to publish:
-
-```sh
-opencode plugin add 'github:lu-zero/maki-peer::path:opencode'
-```
+A package directory does not load, whether named in the `plugins` array by
+absolute or relative path or placed inside `.opencode/plugins/`. Only a bare
+`.ts` or `.js` file does, and the other forms fail with no warning at all.
+`opencode/README.md` has the details and a way to verify the plugin loaded.
 
 ## Use
 
@@ -70,6 +67,8 @@ Commands:
 /peer send <peer-id> <message>
 /peer spawn [--model <provider/model-id>] [tmux] <prompt>
 ```
+
+`/peer` and `/peer list` open a window that lists the local peers. `Esc` closes it.
 
 Tools:
 
@@ -139,6 +138,6 @@ The heartbeat tracks Maki's event loop. A host blocked in a long synchronous
 call stops refreshing its presence record, and peers drop it once the stale
 window passes.
 
-On the OpenCode side a session only becomes a peer once the plugin observes an
+On the OpenCode side a session becomes a peer once the plugin observes an
 event for it, because OpenCode offers plugins no way to list existing
 sessions. `opencode/README.md` has the details.
