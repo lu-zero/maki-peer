@@ -8,12 +8,14 @@ mod common;
 
 use maki_agent::SessionMailbox;
 use maki_agent::tools::ToolRegistry;
-use maki_lua::{ModelRequest, PluginHost, PluginPermissions, UiAction};
+use maki_lua::{ModelRequest, PluginHost, PluginPermissions, SessionRequest, UiAction};
 use maki_storage::id::MakiId;
 use serde_json::json;
 
 const PLUGIN_NAME: &str = "maki-peer";
 const MODEL_SPEC: &str = "zai/glm-5.3-flash";
+const SESSION_CWD: &str = "/tmp/maki-peer-session";
+const SESSION_TITLE: &str = "watching the review";
 
 fn plugin_host(root: &Path) -> (Arc<ToolRegistry>, PluginHost) {
     let registry = Arc::new(ToolRegistry::new());
@@ -32,6 +34,7 @@ fn plugin_host(root: &Path) -> (Arc<ToolRegistry>, PluginHost) {
 /// forward every other action for the assertions to observe.
 fn serve_ui_actions(rx: flume::Receiver<UiAction>) -> mpsc::Receiver<UiAction> {
     let (forward_tx, forward_rx) = mpsc::channel();
+    let session = MakiId::generate().to_string();
     std::thread::spawn(move || {
         while let Ok(action) = rx.recv() {
             match action {
@@ -40,6 +43,28 @@ fn serve_ui_actions(rx: flume::Receiver<UiAction>) -> mpsc::Receiver<UiAction> {
                     reply_tx,
                 } => {
                     let _ = reply_tx.send(Ok(json!({ "spec": MODEL_SPEC })));
+                }
+                // session.current and session.read both answer from the UI
+                // event loop and have no deadline on purpose, so leaving them
+                // unanswered parks the poll thread rather than failing it.
+                // Answering them is what lets the refresh path run at all.
+                UiAction::Session {
+                    req: SessionRequest::Current,
+                    reply_tx,
+                } => {
+                    let _ = reply_tx.send(Ok(json!(session)));
+                }
+                UiAction::Session {
+                    req: SessionRequest::Read { .. },
+                    reply_tx,
+                } => {
+                    let _ = reply_tx.send(Ok(json!({
+                        "id": session,
+                        "cwd": SESSION_CWD,
+                        "model": MODEL_SPEC,
+                        "status": "working",
+                        "title": SESSION_TITLE,
+                    })));
                 }
                 other => {
                     let _ = forward_tx.send(other);
