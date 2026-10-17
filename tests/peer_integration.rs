@@ -32,9 +32,10 @@ fn plugin_host(root: &Path) -> (Arc<ToolRegistry>, PluginHost) {
 
 /// Answer `maki.model.get` roundtrips the way the UI event loop would, and
 /// forward every other action for the assertions to observe.
-fn serve_ui_actions(rx: flume::Receiver<UiAction>) -> mpsc::Receiver<UiAction> {
+fn serve_ui_actions(rx: flume::Receiver<UiAction>, title: &str) -> mpsc::Receiver<UiAction> {
     let (forward_tx, forward_rx) = mpsc::channel();
     let session = MakiId::generate().to_string();
+    let title = title.to_owned();
     std::thread::spawn(move || {
         while let Ok(action) = rx.recv() {
             match action {
@@ -63,7 +64,7 @@ fn serve_ui_actions(rx: flume::Receiver<UiAction>) -> mpsc::Receiver<UiAction> {
                         "cwd": SESSION_CWD,
                         "model": MODEL_SPEC,
                         "status": "working",
-                        "title": SESSION_TITLE,
+                        "title": title,
                     })));
                 }
                 other => {
@@ -178,7 +179,7 @@ fn peer_command_opens_a_list_window() {
     let (_temp, _state) = common::isolated_state();
 
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let forward = serve_ui_actions(host.ui_action_rx());
+    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     host.event_handle()
@@ -279,7 +280,7 @@ fn cwd() -> String {
 fn a_name_suffix_resolves_to_a_peer() {
     let (_temp, state) = common::isolated_state();
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx());
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -301,7 +302,7 @@ fn a_name_suffix_resolves_to_a_peer() {
 fn an_id_prefix_resolves_to_a_peer() {
     let (_temp, state) = common::isolated_state();
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx());
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -322,7 +323,7 @@ fn an_id_prefix_resolves_to_a_peer() {
 fn an_unmatched_target_lists_the_candidates() {
     let (_temp, state) = common::isolated_state();
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx());
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -348,7 +349,7 @@ fn an_unmatched_target_lists_the_candidates() {
 fn an_ambiguous_target_reports_every_match() {
     let (_temp, state) = common::isolated_state();
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx());
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -376,7 +377,7 @@ fn an_ambiguous_target_reports_every_match() {
 fn a_stale_match_says_the_peer_may_have_exited() {
     let (_temp, state) = common::isolated_state();
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx());
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -401,7 +402,7 @@ fn a_stale_match_says_the_peer_may_have_exited() {
 fn the_presence_record_carries_the_working_directory() {
     let (_temp, state) = common::isolated_state();
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx());
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     let id = owner_ids(&state)
@@ -425,7 +426,7 @@ fn the_presence_record_carries_the_working_directory() {
 fn the_list_marks_local_and_same_dir() {
     let (_temp, state) = common::isolated_state();
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx());
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -468,7 +469,7 @@ fn the_list_marks_local_and_same_dir() {
 fn a_peer_without_a_cwd_is_simply_not_same_dir() {
     let (_temp, state) = common::isolated_state();
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx());
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -491,7 +492,7 @@ fn a_peer_without_a_cwd_is_simply_not_same_dir() {
 fn an_unparsable_record_is_dropped_rather_than_re_read_forever() {
     let (_temp, state) = common::isolated_state();
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx());
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -519,7 +520,7 @@ fn a_record_that_cannot_be_read_yet_is_left_for_the_next_pass() {
 
     let (_temp, state) = common::isolated_state();
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx());
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -566,7 +567,7 @@ fn a_record_that_cannot_be_read_yet_is_left_for_the_next_pass() {
 fn a_title_with_unicode_punctuation_renders_byte_for_byte() {
     let (_temp, state) = common::isolated_state();
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx());
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     // Controls must go, but an en dash and CJK are punctuation and content
@@ -602,7 +603,7 @@ fn a_title_with_unicode_punctuation_renders_byte_for_byte() {
 fn same_dir_only_broadcast_skips_peers_in_other_directories() {
     let (_temp, state) = common::isolated_state();
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx());
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -654,7 +655,7 @@ fn two_plugin_hosts_exchange_an_observation() {
     let (_temp, state) = common::isolated_state();
 
     let (first_registry, first_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _first_forward = serve_ui_actions(first_host.ui_action_rx());
+    let _first_forward = serve_ui_actions(first_host.ui_action_rx(), SESSION_TITLE);
     let first_output = exec_tool(&first_registry, "peer_list", json!({})).unwrap();
     assert!(first_output.contains(" via maki "), "got: {first_output}");
     assert!(first_output.contains("(local)"), "got: {first_output}");
@@ -670,7 +671,7 @@ fn two_plugin_hosts_exchange_an_observation() {
     );
 
     let (second_registry, second_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let second_forward = serve_ui_actions(second_host.ui_action_rx());
+    let second_forward = serve_ui_actions(second_host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&second_registry, "peer_list", json!({})).unwrap();
     let second_id = owner_ids(&state)
         .into_iter()
@@ -729,7 +730,7 @@ fn queued_messages_name_the_sending_host() {
     let (_temp, state) = common::isolated_state();
 
     let (first_registry, first_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(first_host.ui_action_rx());
+    let _ = serve_ui_actions(first_host.ui_action_rx(), SESSION_TITLE);
     let first_id = {
         exec_tool(&first_registry, "peer_list", json!({})).unwrap();
         owner_ids(&state)
@@ -739,7 +740,7 @@ fn queued_messages_name_the_sending_host() {
     };
 
     let (second_registry, second_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(second_host.ui_action_rx());
+    let _ = serve_ui_actions(second_host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&second_registry, "peer_list", json!({})).unwrap();
     let second_id = owner_ids(&state)
         .into_iter()
@@ -788,7 +789,7 @@ fn a_foreign_host_session_id_is_ignored_and_the_local_session_is_used() {
     let (_temp, state) = common::isolated_state();
 
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx());
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -827,7 +828,7 @@ fn a_message_for_a_dead_session_is_dropped_instead_of_retried() {
     let (_temp, state) = common::isolated_state();
 
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx());
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -869,7 +870,7 @@ fn peer_list_reports_the_focused_session_status() {
     let (_temp, _state) = common::isolated_state();
 
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx());
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     let live = MakiId::generate();
@@ -893,4 +894,111 @@ fn peer_list_reports_the_focused_session_status() {
     }
 
     drop(host);
+}
+
+/// Wait for the plugin's own record to publish `expected` as its title.
+fn wait_for_title(state: &Path, id: &str, expected: &str) -> serde_json::Value {
+    let path = state.join("peers/owners").join(format!("{id}.json"));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Ok(text) = fs::read_to_string(&path)
+            && let Ok(record) = serde_json::from_str::<serde_json::Value>(&text)
+            && record["title"] == expected
+        {
+            return record;
+        }
+        assert!(Instant::now() < deadline, "record never gained the title");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// A title is text another agent wrote, so it is treated as data: control
+/// characters go, whitespace collapses, and the edges are trimmed. This was
+/// unreachable from a test until the harness answered session.read, because the
+/// only other source is a UI roundtrip no headless host can make.
+#[test]
+fn a_session_title_is_published_sanitised() {
+    let (_temp, state) = common::isolated_state();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (registry, host) = plugin_host(root);
+
+    let raw = "  review\u{1}\u{2} the\u{3}   PR\t\ttoday\u{7}  ";
+    let _forward = serve_ui_actions(host.ui_action_rx(), raw);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    let record = wait_for_title(&state, &id, "review the PR today");
+    assert_eq!(record["title"], "review the PR today");
+}
+
+/// The cap is 64 runes, not 64 bytes, and it must not split a code point. The
+/// field check that a peer title with a multibyte ellipsis survives is only
+/// meaningful if the cut lands on a boundary, which is what this pins.
+#[test]
+fn a_long_session_title_is_capped_on_a_rune_boundary() {
+    let (_temp, state) = common::isolated_state();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (registry, host) = plugin_host(root);
+
+    // 70 em dashes, three bytes each, so a byte-wise cap would land inside one
+    // and a rune-wise one cannot.
+    let raw = "\u{2014}".repeat(70);
+    assert_eq!(raw.len(), 210, "fixture should be three bytes per rune");
+    let _forward = serve_ui_actions(host.ui_action_rx(), &raw);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    let expected = "\u{2014}".repeat(64);
+    let record = wait_for_title(&state, &id, &expected);
+    let published = record["title"].as_str().expect("title should be a string");
+    assert_eq!(published.chars().count(), 64, "cap should be 64 runes");
+    // 64 whole three-byte runes. A cut inside one would leave 193 bytes.
+    assert_eq!(published.len(), 192, "cap should land on a rune boundary");
+    assert_eq!(published, expected);
+}
+
+/// A title that is only whitespace and control characters has nothing left
+/// after sanitising, so the key is absent rather than empty. An empty string
+/// would render as a blank column in the list.
+#[test]
+fn a_title_of_only_whitespace_is_not_published() {
+    let (_temp, state) = common::isolated_state();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (registry, host) = plugin_host(root);
+
+    let _forward = serve_ui_actions(host.ui_action_rx(), " \u{1}\t\u{2} ");
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    // The pre-seeded cwd is published at registration, so waiting on it proves
+    // nothing about the sanitiser. Wait for the session's own cwd instead: it
+    // arrives in the same snapshot as the title, so once it lands the title
+    // has been through the sanitiser too.
+    let path = state.join("peers/owners").join(format!("{id}.json"));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let text = fs::read_to_string(&path).expect("record should exist");
+        let record: serde_json::Value = serde_json::from_str(&text).unwrap();
+        if record["cwd"] == SESSION_CWD {
+            assert!(
+                record.get("title").is_none(),
+                "a title of only whitespace should not be published: {record}"
+            );
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "record never gained the session cwd, so the refresh never ran"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
