@@ -79,7 +79,7 @@ Commands:
 
 Tools:
 
-- `peer_list` lists active local Maki processes and the model each one runs.
+- `peer_list` lists every live local session, with its model, status, and abbreviated id.
   It also lists OpenCode instances once that plugin is installed.
 - `peer_send` sends an observation or status to one peer.
 - `peer_broadcast` sends one observation to every active peer.

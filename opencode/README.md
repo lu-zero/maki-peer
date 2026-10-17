@@ -66,7 +66,7 @@ through its tools:
   `(other dir)` for a peer in a different directory.
 - `peer_send` sends an observation to one peer, by id or by name.
 - `peer_broadcast` sends one observation to every other peer, optionally
-  limited to peers started in the same directory.
+  limited to peers in the same directory.
 
 A slash command was tried and removed. A plugin command on this host has one
 output channel, `session.prompt`, which is a model turn, so a read only
