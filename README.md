@@ -55,6 +55,8 @@ export { default } from "/absolute/path/to/maki-peer/opencode/src/index.ts"
 A package directory does not load, whether named in the `plugins` array by
 absolute or relative path or placed inside `.opencode/plugins/`. Only a bare
 `.ts` or `.js` file does, and the other forms fail with no warning at all.
+That was observed on OpenCode 2.0.29 and 2.0.30, so check it again against a
+newer release before relying on it either way.
 `opencode/README.md` has the details and a way to verify the plugin loaded.
 
 ## Use
