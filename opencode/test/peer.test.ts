@@ -791,6 +791,28 @@ describe("mark and sweep", () => {
     expect((await records()).map((owner) => owner.id)).toEqual(["peer-slow"])
   })
 
+  test("takes the inbox with a record it deletes, message and all", async () => {
+    const { spool, records } = await setup()
+    await write(spool, "peer-dead", now - 3600)
+    const inbox = await spool.ensureInbox("peer-dead")
+    await spool.write(join(inbox, "m1.json"), { body: "hello" })
+    const report = await sweepStaleOwners({ spool, records: await records(), ownIDs: new Set(), now })
+    expect(report.deleted).toBe(1)
+    expect(await records()).toEqual([])
+    expect(existsSync(inbox)).toBe(false)
+  })
+
+  test("never removes this host's own inbox, even from a forged mark", async () => {
+    const { spool } = await setup()
+    await write(spool, "oc-self", now - 3600)
+    const inbox = await spool.ensureInbox("oc-self")
+    await spool.write(join(inbox, "m1.json"), { body: "mine" })
+    await spool.write(spool.gcMarkPath("forged"), [{ id: "oc-self", last_seen: now - 3600 }])
+    await sweepStaleOwners({ spool, records: [], ownIDs: new Set(["oc-self"]), now })
+    expect(existsSync(inbox)).toBe(true)
+    expect(existsSync(join(inbox, "m1.json"))).toBe(true)
+  })
+
   test("never marks or deletes this host's own records", async () => {
     const { spool, records } = await setup()
     await write(spool, "oc-self", now - 3600)

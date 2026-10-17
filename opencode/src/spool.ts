@@ -140,6 +140,10 @@ export class Spool {
     await rm(path, { force: true })
   }
 
+  async removeDir(path: string): Promise<void> {
+    await rm(path, { recursive: true, force: true })
+  }
+
   /** Best effort for teardown, which cannot await. */
   removeSync(path: string): void {
     try {

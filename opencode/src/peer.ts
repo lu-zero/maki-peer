@@ -353,8 +353,22 @@ export async function sweepStaleOwners(input: {
       const owner = parseOwner(await spool.read(spool.ownerPath(entry.id)))
       if (!owner) continue
       if (expired(owner)) {
-        await spool.remove(spool.ownerPath(owner.id)).catch(() => {})
+        try {
+          await spool.remove(spool.ownerPath(owner.id))
+        } catch {
+          // The next pass marks this record again, so the inbox outlives the
+          // failure and goes with the record that owns it.
+          report.kept++
+          continue
+        }
         report.deleted++
+        // A record nobody can address leaves an inbox nobody can fill, so the
+        // inbox goes in the same step, after the record is gone and only when
+        // the record actually left. Own inboxes are excluded twice over: own
+        // records never reach the mark, and this check would refuse one anyway.
+        if (!input.ownIDs.has(owner.id)) {
+          await spool.removeDir(spool.inboxPath(owner.id)).catch(() => {})
+        }
       } else {
         report.kept++
       }
