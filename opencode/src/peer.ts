@@ -3,6 +3,8 @@ import { createHash, randomBytes } from "node:crypto"
 import {
   GC_MARK_AFTER_SECONDS,
   MESSAGE_TTL_SECONDS,
+  MAX_LIST_TITLE_RUNES,
+  MIN_ABBREV_CHARS,
   NAME_HEX_WIDTH,
   ORIGIN_HOST,
   OWNER_REFRESH_MS,
@@ -429,20 +431,52 @@ export function resolvePeer(
  * its own directory, so `same dir` is left off the reader: it only says
  * something about a peer.
  */
+function abbreviateIds(ids: string[]): Map<string, number> {
+  const commonPrefix = (a: string, b: string | undefined) => {
+    if (!b) return 0
+    let n = 0
+    while (n < a.length && n < b.length && a[n] === b[n]) n += 1
+    return n
+  }
+  const sorted = [...ids].sort()
+  const widths = new Map<string, number>()
+  sorted.forEach((id, index) => {
+    const shared = Math.max(commonPrefix(id, sorted[index - 1]), commonPrefix(id, sorted[index + 1]))
+    widths.set(id, Math.min(id.length, Math.max(MIN_ABBREV_CHARS, shared + 1)))
+  })
+  return widths
+}
+
+function listTitle(title: string | undefined): string {
+  if (!title) return "-"
+  const runes = Array.from(title)
+  return runes.length > MAX_LIST_TITLE_RUNES ? `${runes.slice(0, MAX_LIST_TITLE_RUNES).join("")}\u2026` : title
+}
+
+/**
+ * One line per peer, id first, because the id is what every send tool takes and
+ * a bracketed value buried mid-line is what a reader copies by mistake. The id
+ * is abbreviated the way git abbreviates hashes: the shortest prefix that
+ * separates it from every other listed peer. The name is left off, since it is
+ * only the label plus the id prefix the line already carries, and the title is
+ * cut for width, the record keeping the full form. Tags mark exceptions only:
+ * `you` is the session that asked, `other dir` a peer whose directory differs
+ * from it.
+ */
 export function formatPeerLines(
   peers: Owner[],
   self: { ids: ReadonlySet<string>; cwd?: string; sessionID?: string },
 ): string[] {
   const mine = self.sessionID ? peerIdFor(self.sessionID) : undefined
+  const widths = abbreviateIds(peers.map((peer) => peer.id))
   const lines = peers.map((peer) => {
     const flags: string[] = []
     if (mine && peer.id === mine) flags.push("you")
-    if (self.ids.has(peer.id)) flags.push("local")
-    if (sameTree(peer, self) && !flags.includes("you")) flags.push("same dir")
+    if (self.cwd && peer.cwd && !sameTree(peer, self)) flags.push("other dir")
     const suffix = flags.length === 0 ? "" : `  (${flags.join(")  (")})`
     const model = peer.model ?? "-"
-    const title = peer.title ?? "-"
-    return `- ${peer.id}  ${peer.status}  ${model}  ${peer.name}  ${title}  via ${peer.origin?.host ?? "maki"}${suffix}`
+    const width = widths.get(peer.id) ?? peer.id.length
+    return `- ${peer.id.slice(0, width)}  ${peer.status}  ${model}  ${listTitle(peer.title)}  via ${peer.origin?.host ?? "maki"}${suffix}`
   })
   if (peers.length <= 1) lines.push("No other local peers are registered.")
   return lines

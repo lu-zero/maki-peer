@@ -8,6 +8,8 @@ export const MESSAGE_TTL_SECONDS = 300
 export const MAX_INBOX = 100
 export const MAX_BODY_BYTES = 262144
 export const MAX_RECORD_BYTES = MAX_BODY_BYTES + 4096
+export const MIN_ABBREV_CHARS = 4
+export const MAX_LIST_TITLE_RUNES = 24
 
 /**
  * How far past the stale window a record may sit before a sweep may claim it.

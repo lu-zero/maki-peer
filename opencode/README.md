@@ -60,7 +60,10 @@ There is no `/peer` command on this host. The model controls the feature
 through its tools:
 
 - `peer_list` lists every local Maki and OpenCode instance with its host,
-  status, model, and title.
+  status, model, and title. Ids are abbreviated to the shortest prefix that is
+  unique among the listed peers, the title is cut to twenty four runes with an
+  ellipsis, and tags mark only exceptions: `(you)` for the session that asked,
+  `(other dir)` for a peer in a different directory.
 - `peer_send` sends an observation to one peer, by id or by name.
 - `peer_broadcast` sends one observation to every other peer, optionally
   limited to peers started in the same directory.

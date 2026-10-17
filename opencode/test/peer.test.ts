@@ -513,43 +513,42 @@ describe("peer list lines", () => {
     origin: { host: "opencode" },
   }
 
-  test("leads with the id the send tool takes", () => {
+  test("leads with the abbreviated id the send tool takes", () => {
     const [line] = formatPeerLines([oc], { ids: new Set() })
-    expect(line).toBe("- oc-072f2841ee0e9743  working  opencode/space-bunny-free  opencode-072f2841  -  via opencode")
+    expect(line).toBe("- oc-0  working  opencode/space-bunny-free  -  via opencode")
   })
 
-  test("renders the title between name and host, and stays one line however the title behaves", () => {
+  test("cuts the title for width and says so, the record keeping the full form", () => {
     const titled = { ...oc, title: "reviewer: watching the provider retry path" }
     const [line] = formatPeerLines([titled], { ids: new Set() })
     expect(line).toBe(
-      "- oc-072f2841ee0e9743  working  opencode/space-bunny-free  opencode-072f2841  reviewer: watching the provider retry path  via opencode",
+      "- oc-0  working  opencode/space-bunny-free  reviewer: watching the p\u2026  via opencode",
     )
   })
 
-  test("marks this host and peers in the same directory", () => {
-    const mine = { ...oc, cwd: "/home/u/src/maki-peer" }
-    const neighbour = { ...oc, id: "oc-1", cwd: "/home/u/src/maki-peer/" }
-    const elsewhere = { ...oc, id: "oc-2", cwd: "/home/u/src/other" }
-    const lines = formatPeerLines([mine, neighbour, elsewhere], { ids: new Set([mine.id]), cwd: "/home/u/src/maki-peer" })
-    expect(lines[0]).toEndWith("  (local)  (same dir)")
-    expect(lines[1]).toEndWith("  (same dir)")
-    expect(lines[2]).toEndWith("  via opencode")
+  test("tags only the exceptions", () => {
+    const mine = { ...oc, id: peerIdFor("ses_me"), cwd: "/home/u/src/maki-peer" }
+    const neighbour = { ...oc, id: "oc-2", cwd: "/home/u/src/maki-peer/" }
+    const elsewhere = { ...oc, id: "oc-3", cwd: "/home/u/src/other" }
+    const lines = formatPeerLines([mine, neighbour, elsewhere], { ids: new Set([mine.id]), cwd: "/home/u/src/maki-peer", sessionID: "ses_me" })
+    expect(lines[0]).toEndWith("  (you)")
+    expect(lines[1]).toBe("- oc-2  working  opencode/space-bunny-free  -  via opencode")
+    expect(lines[2]).toEndWith("  (other dir)")
   })
 
   test("leaves same dir off the reader, who is always in their own", () => {
     const mine = { ...oc, id: peerIdFor("ses_me"), cwd: "/home/u" }
     const lines = formatPeerLines([mine], { ids: new Set([mine.id]), cwd: "/home/u", sessionID: "ses_me" })
-    expect(lines[0]).toEndWith("  (you)  (local)")
+    expect(lines[0]).toEndWith("  (you)")
   })
 
-  test("marks the session that asked, which local cannot single out", () => {
+  test("marks the session that asked, which the host cannot single out", () => {
     const mine = { ...oc, id: peerIdFor("ses_me"), cwd: "/home/u" }
     const sibling = { ...oc, id: peerIdFor("ses_other") }
     const lines = formatPeerLines([mine, sibling], { ids: new Set([mine.id, sibling.id]), sessionID: "ses_me" })
     expect(lines[0]).toContain("(you)")
-    expect(lines[0]).toContain("(local)")
-    expect(lines[1]).toContain("(local)")
     expect(lines[1]).not.toContain("(you)")
+    expect(lines[1]).not.toContain("(other dir)")
   })
 
   test("prints a dash for a peer that names no model", () => {
@@ -557,12 +556,22 @@ describe("peer list lines", () => {
   })
 
   test("prints a dash for a peer with no title", () => {
-    expect(formatPeerLines([{ ...oc, title: undefined }], { ids: new Set() })[0]).toContain("  opencode-072f2841  -  via")
+    expect(formatPeerLines([{ ...oc, title: undefined }], { ids: new Set() })[0]).toContain("  -  via")
+  })
+
+  test("widens abbreviations until the ids differ", () => {
+    const a = { ...oc, id: "oc-abc123def4567890" }
+    const b = { ...oc, id: "oc-abc123def4567899" }
+    const lines = formatPeerLines([a, b], { ids: new Set() })
+    for (const line of lines) {
+      const shown = line.slice(2).split("  ")[0]
+      expect(shown.length).toBeGreaterThan(4)
+    }
   })
 
   test("says so when this host is alone", () => {
     expect(formatPeerLines([oc], { ids: new Set([oc.id]) })).toEqual([
-      expect.stringContaining("oc-072f2841ee0e9743"),
+      expect.stringContaining("oc-0"),
       "No other local peers are registered.",
     ])
   })
