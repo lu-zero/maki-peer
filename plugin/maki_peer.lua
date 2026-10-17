@@ -3,6 +3,7 @@ local OWNER_REFRESH_TICKS = 4
 local MAX_INBOX = 100
 local MAX_BODY_BYTES = 262144
 local MAX_RECORD_BYTES = MAX_BODY_BYTES + 4096
+local MAX_MODEL_READS = 10
 local OWNER_STALE_SECONDS = 15
 local MESSAGE_TTL_SECONDS = 300
 local PROTOCOL_VERSION = 1
@@ -19,6 +20,8 @@ local runtime = {
   read_ticks = 0,
   dirty = false,
   last_poll_err = nil,
+  model_reads = 0,
+  model_known = false,
   cwd = nil,
   title = nil,
 }
@@ -236,33 +239,34 @@ local function set_owner_model(spec)
   flush_owner()
 end
 
--- A UI roundtrip only completes from a callback: the loop drains UiAction
--- between frames, and maki.async.run ties its task to its caller, so a task
--- started here is cancelled the moment poll returns and the reply never lands.
--- Called directly from the poll body it answers, which is the sanctioned shape.
+-- maki.model.get is a UI roundtrip and answers from the poll body, but only once
+-- the UI has attached. Registration happens on the first tick, which can be
+-- before that, and it used to be the only attempt, so a headless start or an
+-- early first tick published no model and never retried. Returns whether the
+-- model is now known, so the caller can stop asking.
 local function report_model()
   local state, model_err = maki.model.get()
   if type(state) ~= "table" then
     maki.log.warn("peer: model read failed: " .. tostring(model_err))
-    return
+    return false
   end
   local spec = nil
   if type(state.spec) == "string" then
     spec = state.spec
   end
   set_owner_model(spec)
+  return true
 end
 
 -- maki.session.read is the authority for status, title and working directory,
--- so this replaces what the status autocmds used to infer. It is an async host
--- fn, so it runs on the async runtime like the bundled plugins do.
+-- so this replaces what the status autocmds used to infer. It is a UI roundtrip
+-- and answers from the poll body, which is a callback, throttled to the
+-- heartbeat rather than run every tick.
 --
 -- One process is one peer here, but a process can hold several sessions, so the
 -- focused session supplies cwd and title. That is the consistent choice: a peer
 -- receives messages into its focused session, so that is the tree it works in.
 --
--- Throttled to the heartbeat rather than run every tick: read() parks the
--- callback thread on a UI reply, and the record only needs to be that fresh.
 local function current_session()
   if runtime.current_session then
     return runtime.current_session
@@ -276,6 +280,14 @@ local function current_session()
 end
 
 local function refresh_session()
+  -- The model is global rather than per session, so it is asked for before the
+  -- session work and independent of it. Bounded, because a headless maki never
+  -- attaches a UI and would otherwise pay a failed roundtrip every heartbeat.
+  if not runtime.model_known and runtime.model_reads < MAX_MODEL_READS then
+    runtime.model_reads = runtime.model_reads + 1
+    runtime.model_known = report_model()
+  end
+
   local target = current_session()
   if not target then
     return
@@ -317,7 +329,6 @@ local function ensure_registered()
     end
     runtime.owner = new_owner()
     runtime.dirty = true
-    report_model()
   end
   runtime.ticks = runtime.ticks + 1
   if runtime.dirty or runtime.ticks >= OWNER_REFRESH_TICKS then
