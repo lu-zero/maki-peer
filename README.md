@@ -52,11 +52,11 @@ cd maki-peer/opencode && bun install
 export { default } from "/absolute/path/to/maki-peer/opencode/src/index.ts"
 ```
 
-A package directory does not load, whether named in the `plugins` array by
-absolute or relative path or placed inside `.opencode/plugins/`. Only a bare
-`.ts` or `.js` file does, and the other forms fail with no warning at all.
-That was observed on OpenCode 2.0.29 and 2.0.30, so check it again against a
-newer release before relying on it either way.
+The discovery-directory layout changed across OpenCode versions. On 2.0.29 and
+2.0.30 a package directory failed silently in every form, and only a bare
+`.ts` or `.js` file loaded. As of 2.0.32 a package directory placed in the
+discovery directory loads, verified by probe; the `plugins` array forms were
+not re-tested on that release.
 `opencode/README.md` has the details and a way to verify the plugin loaded.
 
 ## Use
