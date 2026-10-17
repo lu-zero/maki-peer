@@ -551,10 +551,10 @@ fn the_list_marks_local_and_same_dir() {
     let out = exec_tool(&registry, "peer_list", json!({})).unwrap();
     let line = out
         .lines()
-        .find(|line| line.contains("opencode-072f28"))
+        .find(|line| line.starts_with("- oc-a  "))
         .unwrap_or_else(|| panic!("got: {out}"));
     assert_eq!(
-        line, "- oc-a  idle  zai/glm-5  opencode-072f28  -  via maki  (local)  (same dir)",
+        line, "- oc-a  idle  zai/glm-5  -  via maki  (local)  (same dir)",
         "got: {line}"
     );
     let own = out
@@ -587,7 +587,7 @@ fn a_peer_without_a_cwd_is_simply_not_same_dir() {
     let out = exec_tool(&registry, "peer_list", json!({})).unwrap();
     let other = out
         .lines()
-        .find(|line| line.contains("opencode-072f28"))
+        .find(|line| line.starts_with("- oc-a  "))
         .unwrap_or_else(|| panic!("got: {out}"));
     assert!(
         !other.contains("(same dir)"),
@@ -706,7 +706,7 @@ fn a_title_with_unicode_punctuation_renders_byte_for_byte() {
     let out = exec_tool(&registry, "peer_list", json!({})).unwrap();
     let line = out
         .lines()
-        .find(|line| line.contains("opencode-072f28"))
+        .find(|line| line.starts_with("- oc-a  "))
         .unwrap_or_else(|| panic!("got: {out}"));
     assert!(
         line.contains("Maki\u{2013}OpenCode peer commu"),

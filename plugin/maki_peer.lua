@@ -946,12 +946,13 @@ local function peer_list_lines(self_session_id)
   local widths = abbreviate_ids(peers)
   local lines = {}
   for _, peer in ipairs(peers) do
+    -- The name is omitted: it is the label plus the id prefix, both of which
+    -- the line already carries, so the column said the same thing twice.
     local line = string.format(
-      "- %s  %s  %s  %s  %s  via %s",
+      "- %s  %s  %s  %s  via %s",
       peer.id:sub(1, widths[peer.id] or #peer.id),
       peer.status,
       peer.model or "-",
-      peer.name,
       list_title(peer) or "-",
       host_of(peer)
     )
