@@ -329,6 +329,7 @@ local function ensure_registered()
     end
     runtime.owner = new_owner()
     runtime.dirty = true
+    runtime.model_known = report_model()
   end
   runtime.ticks = runtime.ticks + 1
   if runtime.dirty or runtime.ticks >= OWNER_REFRESH_TICKS then
@@ -763,15 +764,18 @@ local function poll()
   -- overlapping polls would both read the same inbox and deliver twice, which
   -- is exactly what the opencode half hit in the field.
   local ok, err = pcall(function()
-    runtime.read_ticks = runtime.read_ticks + 1
-    if runtime.read_ticks >= OWNER_REFRESH_TICKS then
-      runtime.read_ticks = 0
-      refresh_session()
-    end
+    -- Register before refreshing, not after. A refresh sets fields on the
+    -- record, and it cannot set a field on a record that does not exist yet,
+    -- so the other order silently drops whatever the first refresh learned.
     local owner, owner_err = ensure_registered()
     if not owner then
       maki.log.warn("peer registration: " .. owner_err)
       return
+    end
+    runtime.read_ticks = runtime.read_ticks + 1
+    if runtime.read_ticks >= OWNER_REFRESH_TICKS then
+      runtime.read_ticks = 0
+      refresh_session()
     end
     local _, receive_err = receive_messages()
     if receive_err then
