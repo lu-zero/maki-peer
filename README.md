@@ -61,7 +61,7 @@ newer release before relying on it either way.
 
 ## Use
 
-The plugin registers each Maki process in a per-user state directory and
+The plugin registers each live Maki session in a per-user state directory and
 refreshes its presence about every two seconds, plus immediately on any status
 or model change. It supports local file delivery, status updates, and detached
 `tmux` peers.
@@ -127,36 +127,29 @@ delivery.
 A message carries the `origin` host that queued it. The `session` field names
 a session on the host that minted it and means nothing anywhere else, so a
 peer ignores `session` on a message whose `origin.host` is not `maki` and
-routes it to the focused session instead. That rule is what lets another host
-share the same spool without knowing anything about maki sessions.
+delivers it into the session the record belongs to. That rule is what lets
+another host share the same spool without knowing anything about maki
+sessions.
 
 Each peer names itself from its own peer id, `maki-6ac003aa` and
-`opencode-072f28`, so a name is stable and needs no configuration. A maki peer id
-begins with the wall clock, so the name is a truncated timestamp rather than a
-random value: eight hex characters is the whole time field, which makes a name
-unique per second. A shorter name collides on a schedule instead of by chance,
-because two starts inside the same window share it. The session
+`opencode-072f28`, so a name is stable and needs no configuration. A maki peer
+id is the session's storage id, so the name is the first eight characters of
+that id: stable across reloads, like the OpenCode name. The session
 title travels alongside as an optional `title` field, which is what you set
 when you want a peer to carry a role rather than an id. A title is data from
 another agent, not an instruction.
 
 A peer's `status`, `cwd` and `title` come from the session itself, not from
-guessing. The two halves differ in how they read them and in what one record
-covers:
+guessing, and both halves work the same way: one record per session, each
+reading its own host. Maki reads `maki.session.read()` for the session its
+record names, OpenCode reads `session.get`. A peer is a session, on either
+host.
 
-- Maki is one record per process and reads `maki.session.read()`. Because a
-  process can hold several sessions, `cwd` and `title` describe the focused
-  session, which is the one peer messages are delivered into.
-- OpenCode is one record per session and reads `session.get`. Its `cwd` and
-  `title` are that session's own.
+That makes "self" the same rule everywhere. Self is the session that asked:
+sending to your own session is refused, sending to another session of your own
+host works, and a broadcast reaches the others.
 
-The same split decides what "self" means. On Maki a process is a peer, so self
-is the process id and a Maki peer cannot reach itself. On OpenCode one host
-holds several sessions and each is its own agent, so self is the session that
-asked: sending to another session of your own host works, sending to your own
-is refused, and a broadcast reaches the others.
-
-Status confidence differs too. Maki reads it from the host, so it is
+Status confidence differs. Maki reads it from the host, so it is
 authoritative. OpenCode infers it from events, so the field is the same and the
 confidence is not.
 
@@ -166,13 +159,14 @@ Delivery order is not guaranteed. Within a single pass a peer delivers oldest
 first, but passes are independent, so three probes sent in order arrived as 1,
 3, 2. An agent that needs an order should put the order in the message.
 
-Delivery is at least once, and the mechanism differs by half. On Maki one
-process is one peer id and peer ids are allocated with an existence check, so a
-peer has exactly one poller and cannot deliver twice. On OpenCode one record can
-be polled by more than one process, since the shared server and a session's own
-client both load the plugin, so a delivery is made exclusive by a claim: the
-message is renamed before it is read, an expired claim goes back to the queue,
-and a poller that died cannot wedge an inbox.
+Delivery is at least once, and the mechanism differs by half. On Maki the peer
+id is the session's storage id, and storage locks a live session to the one
+process holding it, so a record has exactly one poller and cannot deliver
+twice. On OpenCode one record can be polled by more than one process, since
+the shared server and a session's own client both load the plugin, so a
+delivery is made exclusive by a claim: the message is renamed before it is
+read, an expired claim goes back to the queue, and a poller that died cannot
+wedge an inbox.
 
 Both fields are authoritative for what they report. `(same dir)` compares the
 peer's `cwd` after trimming trailing slashes, and is a directory comparison
@@ -181,20 +175,18 @@ is a subdirectory of a monorepo. `peer_broadcast` takes `same_dir_only` to
 reach only the peers sharing that directory.
 
 A send to a handle that no longer exists is refused with the list of live
-peers. Maki mints a new peer id on every reload, so an address held across a
-reload fails once, and the list in the refusal is how the new one is found. An
-OpenCode peer id is a hash of its session, so its name and id survive a reload
-of the host.
-
-Widening a maki name from six hex characters to eight invalidates every handle
-an agent already holds, the same way the rename did. The refusal above is how
-the replacement is found.
+peers. A Maki peer id is the session's storage id, so it survives a reload: the
+next process resumes the session under the same id and the address keeps
+working. An OpenCode peer id is a hash of its session and behaves the same
+way. A handle goes stale only when the session itself is gone, and the list in
+the refusal is how a replacement is found.
 
 A message addressed to a session that is no longer live is dropped and logged
 rather than retried, because no later poll can deliver it. A message with no
-address is retried, since a focused session may come back. Delivery is at
-least once: if the spool file cannot be removed after a successful notify, the
-message is logged and may reach the session a second time.
+session of its own is retried, since a session may resume under the same id.
+Delivery is at least once: if the spool file cannot be removed after a
+successful notify, the message is logged and may reach the session a second
+time.
 
 ## Limits
 

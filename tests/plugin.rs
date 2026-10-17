@@ -5,6 +5,7 @@ use std::sync::Arc;
 use maki_agent::ToolOutput;
 use maki_agent::tools::ToolRegistry;
 use maki_lua::{PluginHost, PluginPermissions};
+use maki_storage::id::{MakiId, SessionRef};
 use serde_json::json;
 
 mod common;
@@ -39,7 +40,8 @@ fn exec_tool(reg: &ToolRegistry, name: &str, input: serde_json::Value) -> Result
         .get(name)
         .unwrap_or_else(|| panic!("tool {name} not registered"));
     let inv = entry.tool.parse(&input).expect("parse failed");
-    let ctx = maki_agent::tools::test_support::stub_ctx(&maki_agent::AgentMode::Build);
+    let mut ctx = maki_agent::tools::test_support::stub_ctx(&maki_agent::AgentMode::Build);
+    ctx.session_id = Some(SessionRef::from_id(MakiId::generate()));
     smol::block_on(async { inv.execute(&ctx).await })
         .output
         .map_or_else(Err, |out| match out {

@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod common;
@@ -9,13 +9,27 @@ mod common;
 use maki_agent::SessionMailbox;
 use maki_agent::tools::ToolRegistry;
 use maki_lua::{ModelRequest, PluginHost, PluginPermissions, SessionRequest, UiAction, UiReply};
-use maki_storage::id::MakiId;
+use maki_storage::id::{MakiId, SessionRef};
 use serde_json::json;
 
 const PLUGIN_NAME: &str = "maki-peer";
 const MODEL_SPEC: &str = "zai/glm-5.3-flash";
 const SESSION_CWD: &str = "/tmp/maki-peer-session";
 const SESSION_TITLE: &str = "watching the review";
+
+// One id per served host, in serve order. A session-scoped plugin acts as the
+// session its tool context names, so exec_tool claims the first served host's
+// id, which is where every test sends from.
+static TEST_SESSIONS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn first_test_session() -> String {
+    TEST_SESSIONS
+        .lock()
+        .unwrap()
+        .first()
+        .expect("serve_ui_actions must run before exec_tool")
+        .clone()
+}
 
 fn plugin_host(root: &Path) -> (Arc<ToolRegistry>, PluginHost) {
     let registry = Arc::new(ToolRegistry::new());
@@ -52,7 +66,11 @@ fn serve_ui_actions_with(
     answer_reads: bool,
 ) -> mpsc::Receiver<UiAction> {
     let (forward_tx, forward_rx) = mpsc::channel();
-    let session = MakiId::generate().to_string();
+    let session = {
+        let mut sessions = TEST_SESSIONS.lock().unwrap();
+        sessions.push(MakiId::generate().to_string());
+        sessions[0].clone()
+    };
     let title = title.to_owned();
     std::thread::spawn(move || {
         // Reply channels for reads we refuse to answer, kept alive on purpose.
@@ -112,7 +130,36 @@ fn exec_tool(
         .get(name)
         .unwrap_or_else(|| panic!("tool {name} not registered"));
     let invocation = entry.tool.parse(&input).expect("parse failed");
-    let context = maki_agent::tools::test_support::stub_ctx(&maki_agent::AgentMode::Build);
+    let mut context = maki_agent::tools::test_support::stub_ctx(&maki_agent::AgentMode::Build);
+    context.session_id = Some(SessionRef::from_id(
+        first_test_session().parse::<MakiId>().unwrap(),
+    ));
+    smol::block_on(async { invocation.execute(&context).await })
+        .output
+        .map_or_else(Err, |output| match output {
+            maki_agent::ToolOutput::Plain(text) => Ok(text.text),
+            other => panic!("unexpected output: {other:?}"),
+        })
+}
+
+fn exec_tool_as(
+    reg: &ToolRegistry,
+    name: &str,
+    input: serde_json::Value,
+    session_index: usize,
+) -> Result<String, String> {
+    let entry = reg
+        .get(name)
+        .unwrap_or_else(|| panic!("tool {name} not registered"));
+    let invocation = entry.tool.parse(&input).expect("parse failed");
+    let mut context = maki_agent::tools::test_support::stub_ctx(&maki_agent::AgentMode::Build);
+    let session = TEST_SESSIONS
+        .lock()
+        .unwrap()
+        .get(session_index)
+        .expect("serve_ui_actions must run for this host first")
+        .clone();
+    context.session_id = Some(SessionRef::from_id(session.parse::<MakiId>().unwrap()));
     smol::block_on(async { invocation.execute(&context).await })
         .output
         .map_or_else(Err, |output| match output {
@@ -699,7 +746,7 @@ fn two_plugin_hosts_exchange_an_observation() {
 
     let (second_registry, second_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
     let second_forward = serve_ui_actions(second_host.ui_action_rx(), SESSION_TITLE);
-    exec_tool(&second_registry, "peer_list", json!({})).unwrap();
+    exec_tool_as(&second_registry, "peer_list", json!({}), 1).unwrap();
     let second_id = owner_ids(&state)
         .into_iter()
         .find(|id| id != &first_id)
@@ -768,7 +815,7 @@ fn queued_messages_name_the_sending_host() {
 
     let (second_registry, second_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
     let _ = serve_ui_actions(second_host.ui_action_rx(), SESSION_TITLE);
-    exec_tool(&second_registry, "peer_list", json!({})).unwrap();
+    exec_tool_as(&second_registry, "peer_list", json!({}), 1).unwrap();
     let second_id = owner_ids(&state)
         .into_iter()
         .find(|id| id != &first_id)
@@ -823,8 +870,15 @@ fn a_foreign_host_session_id_is_ignored_and_the_local_session_is_used() {
         .next()
         .expect("peer should register");
 
+    // The inbox belongs to the session the record names, so unaddressed mail
+    // is for that session even while another session of the host is active.
+    let own_session: MakiId = id
+        .strip_prefix("peer-")
+        .expect("record id carries the session id")
+        .parse()
+        .unwrap();
+    let mailbox = SessionMailbox::register(own_session);
     let live = MakiId::generate();
-    let mailbox = SessionMailbox::register(live);
     host.event_handle().fire_autocmd(
         "SessionStatusChanged",
         json!({ "session_id": live.to_string(), "status": "idle" }),

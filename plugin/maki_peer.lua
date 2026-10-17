@@ -12,17 +12,16 @@ local NOT_LIVE_ERR = "session not live"
 
 local runtime = {
   root = nil,
-  peer_id = nil,
-  owner = nil,
+  sessions = {},
+  dirty = {},
   current_session = nil,
   statuses = {},
   ticks = 0,
   read_ticks = 0,
-  dirty = false,
+  read_cursor = 0,
   last_poll_err = nil,
   read_pending = false,
   cwd = nil,
-  title = nil,
 }
 
 local function normalize_dir(path)
@@ -42,8 +41,8 @@ local function valid_id(id)
   return type(id) == "string" and #id <= 128 and id:match("^[%w_-]+$") ~= nil
 end
 
-local function same_dir(peer)
-  return runtime.cwd ~= nil and type(peer.cwd) == "string" and normalize_dir(peer.cwd) == runtime.cwd
+local function same_dir(peer, mine)
+  return mine ~= nil and mine.cwd ~= nil and type(peer.cwd) == "string" and normalize_dir(peer.cwd) == mine.cwd
 end
 
 local function host_of(peer)
@@ -54,21 +53,16 @@ local function host_of(peer)
   return ORIGIN_HOST
 end
 
-local function new_peer_id()
-  return string.format("peer-%x-%x-%x", os.time(), math.floor(os.clock() * 1000000), math.random(0, 0x7fffffff))
+-- The id is the session's, because the session is what survives a reload: the
+-- next process resumes it under the same storage id, so addresses held by
+-- other agents keep working. One record per live session, like the opencode
+-- half, whose ids are the same hash of the same thing.
+local function peer_id_for(session_id)
+  return "peer-" .. session_id
 end
 
-local function status_now()
-  local aggregate = "idle"
-  for _, status in pairs(runtime.statuses) do
-    if status == "needs_input" then
-      return "needs_input"
-    end
-    if status == "working" then
-      aggregate = "working"
-    end
-  end
-  return aggregate
+local function session_status(session_id)
+  return runtime.statuses[session_id] or "idle"
 end
 
 local function path_join(...)
@@ -105,7 +99,6 @@ local function ensure_layout()
     return nil, err
   end
   runtime.root = root
-  runtime.peer_id = new_peer_id()
   return true
 end
 
@@ -187,66 +180,104 @@ local function sanitize_title(title)
   return text
 end
 
-local function new_owner()
-  local owner = {
+local function register_session(session_id)
+  if runtime.sessions[session_id] then
+    return
+  end
+  local record = {
     protocol = PROTOCOL_VERSION,
-    id = runtime.peer_id,
-    name = peer_name(runtime.peer_id),
+    id = peer_id_for(session_id),
+    name = peer_name(peer_id_for(session_id)),
     started = os.time(),
     last_seen = os.time(),
-    status = status_now(),
+    status = session_status(session_id),
   }
   -- Optional on purpose. Bumping PROTOCOL_VERSION would make an upgraded half
   -- invisible to a half that was not upgraded, since readers reject any record
   -- whose protocol is not theirs.
   if runtime.cwd then
-    owner.cwd = runtime.cwd
+    record.cwd = normalize_dir(runtime.cwd)
   end
-  if runtime.title then
-    owner.title = runtime.title
-  end
-  return owner
+  runtime.sessions[session_id] = record
+  runtime.dirty[session_id] = true
 end
 
-local function flush_owner()
-  local owner = runtime.owner
-  if not owner then
+-- A session that is gone takes its presence with it. On reload the inbox is
+-- kept: the session resumes under the same id in the next process, and mail
+-- queued for it should still be there when it does.
+local function unregister_session(session_id, keep_inbox)
+  local record = runtime.sessions[session_id]
+  if not record then
+    return
+  end
+  remove_file(owner_path(record.id))
+  if not keep_inbox then
+    maki.fs.rm(inbox_path(record.id), { recursive = true, force = true })
+  end
+  runtime.sessions[session_id] = nil
+  runtime.dirty[session_id] = nil
+  runtime.statuses[session_id] = nil
+end
+
+local function flush_session(session_id)
+  local record = runtime.sessions[session_id]
+  if not record then
     return true
   end
-  owner.last_seen = os.time()
-  owner.status = status_now()
-  -- The record is built once but these two keep moving. Assigning nil removes
-  -- the key, which the encoder omits, so a cleared title stops being published
-  -- rather than sticking to whatever was read first.
-  owner.cwd = runtime.cwd
-  owner.title = runtime.title
-  local written, write_err = write_json(owner_path(owner.id), owner)
-  if not written then
-    return nil, write_err
+  record.last_seen = os.time()
+  record.status = session_status(session_id)
+  return write_json(owner_path(record.id), record)
+end
+
+-- Dirty records flush on the tick they changed on, the rest on the heartbeat
+-- so last_seen keeps breathing. The heartbeat is not reset by a dirty flush,
+-- or a session that changes every tick would never reach it.
+local function flush_sessions()
+  local due = runtime.ticks >= OWNER_REFRESH_TICKS
+  if due then
+    runtime.ticks = 0
   end
-  runtime.ticks = 0
-  runtime.dirty = false
+  for session_id in pairs(runtime.sessions) do
+    if due or runtime.dirty[session_id] then
+      runtime.dirty[session_id] = nil
+      local written, write_err = flush_session(session_id)
+      if not written then
+        return nil, write_err
+      end
+    end
+  end
   return true
 end
 
-local function set_owner_model(spec)
-  local owner = runtime.owner
-  if not owner or owner.model == spec then
-    return
+-- The record of the session acting, created if this is its first action
+-- before the heartbeat reached it. The write is synchronous on purpose: a
+-- tool that lists or sends must find its own record on disk when it returns,
+-- not one heartbeat later.
+local function ensure_session(session_id)
+  if not session_id then
+    return nil, "no live session for this peer action"
   end
-  owner.model = spec
-  flush_owner()
+  local ok, err = ensure_layout()
+  if not ok then
+    return nil, err
+  end
+  register_session(session_id)
+  local record = runtime.sessions[session_id]
+  runtime.dirty[session_id] = nil
+  local written, write_err = flush_session(session_id)
+  if not written then
+    return nil, write_err
+  end
+  return record
 end
 
--- maki.session.read is the authority for status, title and working directory,
--- so this replaces what the status autocmds used to infer. It is a UI roundtrip
--- and answers from the poll body, which is a callback, throttled to the
--- heartbeat rather than run every tick.
---
--- One process is one peer here, but a process can hold several sessions, so the
--- focused session supplies cwd and title. That is the consistent choice: a peer
--- receives messages into its focused session, so that is the tree it works in.
---
+-- maki.session.read is the authority for status, title, working directory and
+-- model of one session, and each live session carries its own record, so
+-- peers see sessions, not processes. It is a UI roundtrip and answers only
+-- when the loop drains UiAction between frames, and ui_roundtrip carries no
+-- deadline on purpose because open_editor holds the loop for as long as it is
+-- up. The refresh therefore runs in a spawned task that outlives its caller,
+-- so a slow UI delays the record instead of the loop.
 local function current_session()
   if runtime.current_session then
     return runtime.current_session
@@ -259,52 +290,66 @@ local function current_session()
   return nil, err
 end
 
-local function refresh_session()
-  local target = current_session()
-  if not target then
-    return
-  end
-  local snapshot, read_err = maki.session.read({ session = target })
+local function refresh_one(session_id)
+  local snapshot, read_err = maki.session.read({ session = session_id })
   if type(snapshot) ~= "table" then
     maki.log.warn("peer: session read failed: " .. tostring(read_err))
     return
   end
+  local record = runtime.sessions[session_id]
+  if not record then
+    return
+  end
   if snapshot.status == "idle" or snapshot.status == "working" or snapshot.status == "needs_input" then
-    runtime.statuses[target] = snapshot.status
+    runtime.statuses[session_id] = snapshot.status
   end
   local dir = normalize_dir(snapshot.cwd)
-  if dir and dir ~= runtime.cwd then
-    runtime.cwd = dir
-    runtime.dirty = true
+  if dir and dir ~= record.cwd then
+    record.cwd = dir
+    runtime.dirty[session_id] = true
   end
+  -- Assigning nil removes the key, which the encoder omits, so a cleared title
+  -- stops being published rather than sticking to whatever was read first.
   local title = sanitize_title(snapshot.title)
-  if title ~= runtime.title then
-    runtime.title = title
-    runtime.dirty = true
+  if title ~= record.title then
+    record.title = title
+    runtime.dirty[session_id] = true
   end
-  -- The snapshot carries the session's model spec, so there is no second
-  -- roundtrip for it. set_owner_model is a no-op when the spec is unchanged.
-  if type(snapshot.model) == "string" then
-    set_owner_model(snapshot.model)
+  if type(snapshot.model) == "string" and snapshot.model ~= record.model then
+    record.model = snapshot.model
+    runtime.dirty[session_id] = true
   end
 end
 
--- The refresh runs in a spawned task, not on the poll body. A UI roundtrip is
--- answered only when the loop drains UiAction between frames, and
--- ui_roundtrip carries no deadline on purpose because open_editor holds the
--- loop for as long as it is up. On the poll body that park took presence
--- flushing and inbox reads down with it, silently. spawn outlives its caller,
--- so a slow UI now delays the record instead of the loop.
---
--- One read in flight at a time: the heartbeat asks every few ticks, and a task
--- parked on a busy loop would otherwise accumulate one per tick.
+-- The focused session is registered from the first event that names it, and
+-- the current listing seeds it before the first event arrives. One read per
+-- heartbeat, rotating through the known sessions, so a slow session delays
+-- only its own record. One refresh in flight at a time: a task parked on a
+-- busy loop would otherwise accumulate one per tick.
+local function refresh_sessions()
+  local focused = current_session()
+  if focused then
+    register_session(focused)
+  end
+  local ids = {}
+  for session_id in pairs(runtime.sessions) do
+    ids[#ids + 1] = session_id
+  end
+  table.sort(ids)
+  if #ids == 0 then
+    return
+  end
+  runtime.read_cursor = (runtime.read_cursor % #ids) + 1
+  refresh_one(ids[runtime.read_cursor])
+end
+
 local function request_refresh()
   if runtime.read_pending then
     return
   end
   runtime.read_pending = true
   local started, start_err = maki.async.spawn(function()
-    local ok, err = pcall(refresh_session)
+    local ok, err = pcall(refresh_sessions)
     runtime.read_pending = false
     if not ok then
       maki.log.warn("peer refresh: " .. tostring(err))
@@ -314,34 +359,6 @@ local function request_refresh()
     runtime.read_pending = false
     maki.log.warn("peer refresh could not start: " .. tostring(start_err))
   end
-end
-
-local function ensure_registered()
-  local ok, err = ensure_layout()
-  if not ok then
-    return nil, err
-  end
-  if not runtime.owner then
-    for _ = 1, 10 do
-      runtime.peer_id = new_peer_id()
-      if not maki.fs.metadata(owner_path(runtime.peer_id)) then
-        break
-      end
-    end
-    if maki.fs.metadata(owner_path(runtime.peer_id)) then
-      return nil, "could not allocate a peer id"
-    end
-    runtime.owner = new_owner()
-    runtime.dirty = true
-  end
-  runtime.ticks = runtime.ticks + 1
-  if runtime.dirty or runtime.ticks >= OWNER_REFRESH_TICKS then
-    local written, write_err = flush_owner()
-    if not written then
-      return nil, write_err
-    end
-  end
-  return runtime.owner
 end
 
 local function owner_entries()
@@ -388,9 +405,11 @@ local function is_live(peer)
 end
 
 local function list_peers()
-  local owner, owner_err = ensure_registered()
-  if not owner then
-    return nil, owner_err
+  if not runtime.root then
+    local ok, layout_err = ensure_layout()
+    if not ok then
+      return nil, layout_err
+    end
   end
   local peers, scan_err = scan_owners()
   if not peers then
@@ -445,7 +464,7 @@ local function match_peers(query, peers)
   return by_id_prefix
 end
 
-local function resolve_target(query)
+local function resolve_target(query, self_id)
   if type(query) ~= "string" or query:match("^%s*$") then
     return nil, "a peer name or id is required"
   end
@@ -453,12 +472,13 @@ local function resolve_target(query)
   if not peers then
     return nil, scan_err
   end
-  -- Ours is not a target anywhere in this function. A send to yourself would
-  -- only arrive back in your own session, and the suggestion list already
-  -- refused to offer it, so matching has to agree with that.
+  -- The session that asked is not a target anywhere in this function. A send
+  -- to yourself would only arrive back in your own session, and the suggestion
+  -- list already refused to offer it, so matching has to agree with that. The
+  -- other sessions of this process are ordinary peers.
   local others = {}
   for _, peer in ipairs(peers) do
-    if peer.id ~= runtime.peer_id then
+    if peer.id ~= self_id then
       others[#others + 1] = peer
     end
   end
@@ -504,9 +524,9 @@ local function resolve_target(query)
   return nil, string.format("peer %s last refreshed %ds ago; it may have exited%s", peer_label(peer), peer.age, many)
 end
 
-local function new_message_id(to)
+local function new_message_id(owner_id, to)
   for _ = 1, 10 do
-    local id = string.format("%s-%x-%x", runtime.peer_id, os.time(), math.random(0, 0x7fffffff))
+    local id = string.format("%s-%x-%x", owner_id, os.time(), math.random(0, 0x7fffffff))
     local path = path_join(inbox_path(to), id .. ".json")
     if not maki.fs.metadata(path) then
       return id
@@ -552,7 +572,7 @@ local function queue_message(owner, target, body, opts)
     return nil, "invalid message id"
   end
   if not message_id then
-    local generated, id_err = new_message_id(target.id)
+    local generated, id_err = new_message_id(owner.id, target.id)
     if not generated then
       return nil, id_err
     end
@@ -590,34 +610,34 @@ end
 
 -- `query` is a peer name, a peer id, or any suffix or prefix of either, so it
 -- is resolved against the presence records rather than validated as an id.
-local function send_message(query, body, opts)
+local function send_message(query, body, opts, self_session_id)
   opts = opts or {}
-  local owner, owner_err = ensure_registered()
-  if not owner then
-    return nil, owner_err
+  local mine, self_err = ensure_session(self_session_id)
+  if not mine then
+    return nil, self_err
   end
-  local target, resolve_err = resolve_target(query)
+  local target, resolve_err = resolve_target(query, mine.id)
   if not target then
     return nil, resolve_err
   end
-  return queue_message(owner, target, body, opts)
+  return queue_message(mine, target, body, opts)
 end
 
-local function broadcast_message(body, opts)
+local function broadcast_message(body, opts, self_session_id)
   opts = opts or {}
+  local mine, self_err = ensure_session(self_session_id)
+  if not mine then
+    return nil, self_err
+  end
   local peers, list_err = list_peers()
   if not peers then
     return nil, list_err
   end
-  local owner, owner_err = ensure_registered()
-  if not owner then
-    return nil, owner_err
-  end
   local same_dir_only = opts.same_dir_only == true
   local receipts = {}
   for _, peer in ipairs(peers) do
-    if peer.id ~= owner.id and (not same_dir_only or same_dir(peer)) then
-      local receipt, err = queue_message(owner, peer, body, opts)
+    if peer.id ~= mine.id and (not same_dir_only or same_dir(peer, mine)) then
+      local receipt, err = queue_message(mine, peer, body, opts)
       receipts[#receipts + 1] = receipt or { peer_id = peer.id, state = "rejected", error = err }
     end
   end
@@ -651,11 +671,14 @@ local function message_session(message)
   return message.session
 end
 
-local function deliver_message(path, message)
+-- An unaddressed message sits in the inbox of the session it was sent to, so
+-- that session is the target; it may not be live right now, but sessions
+-- resume under the same id, so retry rather than drop.
+local function deliver_message(path, message, inbox_session_id)
   local target = message_session(message)
   local addressed = target ~= nil
   if not target then
-    target = current_session()
+    target = inbox_session_id
   end
   if not target then
     return "retry", "no live session for peer message"
@@ -688,12 +711,8 @@ local function drop_undeliverable(name, path, why)
   remove_file(path)
 end
 
-local function receive_messages()
-  local owner, owner_err = ensure_registered()
-  if not owner then
-    return nil, owner_err
-  end
-  local inbox = inbox_path(owner.id)
+local function receive_inbox(session_id, record)
+  local inbox = inbox_path(record.id)
   local ok, dir_err = ensure_dir(inbox)
   if not ok then
     return nil, dir_err
@@ -721,7 +740,7 @@ local function receive_messages()
           maki.log.warn("peer: could not read " .. name .. ": " .. tostring(read_err))
         else
           local message = maki.json.decode(text)
-          if not valid_message(message, owner.id) then
+          if not valid_message(message, record.id) then
             drop_undeliverable(name, path, "unparsable or misfiled")
           elseif tonumber(message.expires) and tonumber(message.expires) <= now then
             remove_file(path)
@@ -742,14 +761,14 @@ local function receive_messages()
   local delivery_errors = {}
   for index = 1, math.min(#pending, MAX_INBOX) do
     local item = pending[index]
-    local state, deliver_err = deliver_message(item.path, item.value)
+    local state, deliver_err = deliver_message(item.path, item.value, session_id)
     if state == "delivered" then
       maki.api.exec_autocmds("PeerMessage", {
         pattern = item.value.from,
         data = { message = item.value, receipt = { state = "delivered" } },
       })
     elseif state == "dead" then
-      maki.log.warn("peer: dropped " .. item.value.id .. " for " .. owner.id .. ": " .. tostring(deliver_err))
+      maki.log.warn("peer: dropped " .. item.value.id .. " for " .. record.id .. ": " .. tostring(deliver_err))
       remove_file(item.path)
     elseif deliver_err then
       delivery_errors[#delivery_errors + 1] = deliver_err
@@ -761,19 +780,40 @@ local function receive_messages()
   return true
 end
 
+-- Each live session reads its own inbox, so mail lands on the session it was
+-- addressed to even while another session of this process is focused.
+local function receive_messages()
+  local failed = nil
+  for session_id, record in pairs(runtime.sessions) do
+    local ok, err = receive_inbox(session_id, record)
+    if not ok and not failed then
+      failed = err
+    end
+  end
+  if failed then
+    return nil, failed
+  end
+  return true
+end
+
 local function poll()
   -- The body runs inside a pcall and the next tick is scheduled after it, so
   -- a slow delivery cannot start a second poll on top of this one. Two
   -- overlapping polls would both read the same inbox and deliver twice, which
   -- is exactly what the opencode half hit in the field.
   local ok, err = pcall(function()
-    -- Register before refreshing, not after. A refresh sets fields on the
-    -- record, and it cannot set a field on a record that does not exist yet,
-    -- so the other order silently drops whatever the first refresh learned.
-    local owner, owner_err = ensure_registered()
-    if not owner then
-      maki.log.warn("peer registration: " .. owner_err)
+    local laid, layout_err = ensure_layout()
+    if not laid then
+      maki.log.warn("peer layout: " .. layout_err)
       return
+    end
+    runtime.ticks = runtime.ticks + 1
+    -- Flush before refreshing. A refresh sets fields on records, and it
+    -- cannot set a field on a record that does not exist yet, so the other
+    -- order would silently drop whatever the first refresh learned.
+    local _, flush_err = flush_sessions()
+    if flush_err then
+      maki.log.warn("peer flush: " .. flush_err)
     end
     runtime.read_ticks = runtime.read_ticks + 1
     if runtime.read_ticks >= OWNER_REFRESH_TICKS then
@@ -802,54 +842,54 @@ local function poll()
 end
 
 local function register_status_autocmds()
+  -- A session becomes a peer on the first event that names it, the same rule
+  -- the opencode half follows, and unregistering is SessionEnd's job.
   maki.api.create_autocmd("SessionStatusChanged", {
     callback = function(ev)
       runtime.statuses[ev.data.session_id] = ev.data.status
-      runtime.current_session = ev.data.session_id
-      flush_owner()
+      register_session(ev.data.session_id)
+      runtime.dirty[ev.data.session_id] = true
     end,
   })
   maki.api.create_autocmd("SessionFocusChanged", {
     callback = function(ev)
       runtime.current_session = ev.data.session_id
+      register_session(ev.data.session_id)
+      runtime.dirty[ev.data.session_id] = true
     end,
   })
   maki.api.create_autocmd("ModelChanged", {
     callback = function(ev)
-      local model = ev.data and ev.data.model
-      if type(model) == "table" and type(model.spec) == "string" then
-        set_owner_model(model.spec)
+      local data = ev.data or {}
+      local session_id = data.session_id or runtime.current_session
+      local record = session_id and runtime.sessions[session_id]
+      if record and type(data.model) == "table" and type(data.model.spec) == "string" then
+        record.model = data.model.spec
+        runtime.dirty[session_id] = true
       end
     end,
   })
   maki.api.create_autocmd("SessionEnd", {
     callback = function(ev)
-      runtime.statuses[ev.data.session_id] = nil
-      if runtime.current_session == ev.data.session_id then
+      local session_id = ev.data.session_id
+      runtime.statuses[session_id] = nil
+      if runtime.current_session == session_id then
         runtime.current_session = nil
       end
-      local owner = runtime.owner
-      if not owner then
-        return
-      end
-      local reason = ev.data.reason
-      if reason == "shutdown" or reason == "reload" or reason == "completed" or reason == "replaced" then
-        remove_file(owner_path(owner.id))
-        maki.fs.rm(inbox_path(owner.id), { recursive = true, force = true })
-        runtime.owner = nil
-        return
-      end
-      flush_owner()
+      unregister_session(session_id, ev.data.reason == "reload")
     end,
   })
 end
 
-local function peer_list_lines()
+local function peer_list_lines(self_session_id)
+  local mine, mine_err = ensure_session(self_session_id)
+  if not mine then
+    return nil, mine_err
+  end
   local peers, err = list_peers()
   if not peers then
     return nil, err
   end
-  local mine = runtime.peer_id
   local lines = {}
   for _, peer in ipairs(peers) do
     local line = string.format(
@@ -861,13 +901,13 @@ local function peer_list_lines()
       peer.title or "-",
       host_of(peer)
     )
-    if mine and peer.id == mine then
+    if peer.id == mine.id then
       line = line .. "  (you)"
     end
     if host_of(peer) == ORIGIN_HOST then
       line = line .. "  (local)"
     end
-    if same_dir(peer) then
+    if same_dir(peer, mine) then
       line = line .. "  (same dir)"
     end
     lines[#lines + 1] = line
@@ -878,8 +918,8 @@ local function peer_list_lines()
   return lines, nil
 end
 
-local function peer_list_output()
-  local lines, err = peer_list_lines()
+local function peer_list_output(self_session_id)
+  local lines, err = peer_list_lines(self_session_id)
   if not lines then
     return nil, err
   end
@@ -891,7 +931,7 @@ local PEER_WINDOW_MARGIN = 4
 -- A notice renders one line in the status bar, so the list goes into a float
 -- instead and the command waits in recv until the user dismisses it.
 local function show_peers()
-  local lines, err = peer_list_lines()
+  local lines, err = peer_list_lines(current_session())
   if not lines then
     maki.notify(err or "could not list peers", "error", { title = "peer" })
     return
@@ -920,7 +960,7 @@ local function show_peers()
   win:close()
 end
 
-local function start_peer(launcher, prompt, model)
+local function start_peer(launcher, prompt, model, self_session_id)
   if type(prompt) ~= "string" or prompt:match("^%s*$") then
     return nil, "a non-blank prompt is required"
   end
@@ -940,11 +980,11 @@ local function start_peer(launcher, prompt, model)
   if launcher ~= "tmux" then
     return nil, "only the tmux launcher is available in this build"
   end
-  local owner, owner_err = ensure_registered()
-  if not owner then
-    return nil, owner_err
+  local mine, self_err = ensure_session(self_session_id)
+  if not mine then
+    return nil, self_err
   end
-  local suffix = owner.id:sub(1, 8)
+  local suffix = mine.id:sub(1, 8)
   local name = "maki-peer-" .. suffix .. "-" .. tostring(os.time())
   local argv = { "tmux", "new-session", "-d", "-s", name, "maki" }
   if model then
@@ -987,8 +1027,8 @@ maki.api.register_tool({
   permission_scopes = function()
     return { scopes = { "peer_list" }, force_prompt = false }
   end,
-  handler = function()
-    local output, err = peer_list_output()
+  handler = function(_, ctx)
+    local output, err = peer_list_output(ctx and ctx:session_id())
     if not output then
       return { llm_output = err or "could not list peers", is_error = true }
     end
@@ -1013,11 +1053,11 @@ maki.api.register_tool({
       kind = { type = "string", description = "observation or status" },
     },
   },
-  handler = function(input)
+  handler = function(input, ctx)
     local receipt, err = send_message(input.peer_id, input.message, {
       session = input.session,
       kind = input.kind,
-    })
+    }, ctx and ctx:session_id())
     if not receipt then
       return { llm_output = err or "peer message was rejected", is_error = true }
     end
@@ -1038,12 +1078,12 @@ maki.api.register_tool({
       same_dir_only = { type = "boolean", description = "Only peers reporting the same working directory" },
     },
   },
-  handler = function(input)
+  handler = function(input, ctx)
     local receipts, err = broadcast_message(input.message, {
       session = input.session,
       kind = input.kind,
       same_dir_only = input.same_dir_only,
-    })
+    }, ctx and ctx:session_id())
     if not receipts then
       return { llm_output = err or "peer broadcast failed", is_error = true }
     end
@@ -1067,8 +1107,8 @@ maki.api.register_tool({
   permission_scopes = function(input)
     return { scopes = { input.launcher or "tmux" }, force_prompt = true }
   end,
-  handler = function(input)
-    local name, err = start_peer(input.launcher or "tmux", input.prompt, input.model)
+  handler = function(input, ctx)
+    local name, err = start_peer(input.launcher or "tmux", input.prompt, input.model, ctx and ctx:session_id())
     if not name then
       return { llm_output = err or "peer spawn failed", is_error = true }
     end
@@ -1096,7 +1136,7 @@ maki.api.register_command({
         maki.notify("Usage: /peer send <peer> <message>", "warn", { title = "peer" })
         return
       end
-      local receipt, err = send_message(peer, message, {})
+      local receipt, err = send_message(peer, message, {}, current_session())
       if not receipt then
         maki.notify("Could not send peer message: " .. (err or "unknown error"), "error", { title = "peer" })
         return
@@ -1111,7 +1151,7 @@ maki.api.register_command({
       if without_tmux then
         prompt = without_tmux
       end
-      local name, err = start_peer("tmux", prompt, model)
+      local name, err = start_peer("tmux", prompt, model, current_session())
       if not name then
         maki.notify("Could not spawn peer: " .. (err or "unknown error"), "error", { title = "peer" })
         return
