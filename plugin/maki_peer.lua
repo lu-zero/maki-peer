@@ -262,6 +262,18 @@ end
 --
 -- Throttled to the heartbeat rather than run every tick: read() parks the
 -- callback thread on a UI reply, and the record only needs to be that fresh.
+local function current_session()
+  if runtime.current_session then
+    return runtime.current_session
+  end
+  local id, err = maki.session.current()
+  if id then
+    runtime.current_session = id
+    return id
+  end
+  return nil, err
+end
+
 local function refresh_session()
   local target = current_session()
   if not target then
@@ -594,18 +606,6 @@ local function broadcast_message(body, opts)
     end
   end
   return receipts, nil
-end
-
-local function current_session()
-  if runtime.current_session then
-    return runtime.current_session
-  end
-  local id, err = maki.session.current()
-  if id then
-    runtime.current_session = id
-    return id
-  end
-  return nil, err
 end
 
 local function valid_message(message, owner_id)
