@@ -174,6 +174,12 @@ only: two worktrees of one repository are not the same directory, and neither
 is a subdirectory of a monorepo. `peer_broadcast` takes `same_dir_only` to
 reach only the peers sharing that directory.
 
+A send to a handle that no longer exists is refused with the list of live
+peers. Maki mints a new peer id on every reload, so an address held across a
+reload fails once, and the list in the refusal is how the new one is found. An
+OpenCode peer id is a hash of its session, so its name and id survive a reload
+of the host.
+
 A message addressed to a session that is no longer live is dropped and logged
 rather than retried, because no later poll can deliver it. A message with no
 address is retried, since a focused session may come back. Delivery is at
