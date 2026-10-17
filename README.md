@@ -40,8 +40,13 @@ A checkout can also be placed in the local pack directory:
 
 ### OpenCode
 
-From a checkout, run `bun install` in `opencode/`, then point a one-line file
-at the entrypoint:
+Clone the repository, install the plugin's dependencies, then point a one-line
+file at the entrypoint:
+
+```sh
+git clone https://github.com/lu-zero/maki-peer
+cd maki-peer/opencode && bun install
+```
 
 ```ts title="~/.config/opencode/plugins/maki-peer.ts"
 export { default } from "/absolute/path/to/maki-peer/opencode/src/index.ts"
