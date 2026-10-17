@@ -186,7 +186,8 @@ reach only the peers sharing that directory.
 A send to a handle that no longer exists is refused with the list of live
 peers. A Maki peer id is the session's storage id, so it survives a reload: the
 next process resumes the session under the same id and the address keeps
-working. An OpenCode peer id is a hash of its session and behaves the same
+working, and so do the record and any queued mail, which the next process takes
+over instead of rebuilding. An OpenCode peer id is a hash of its session and behaves the same
 way. A handle goes stale only when the session itself is gone, and the list in
 the refusal is how a replacement is found.
 

@@ -204,18 +204,14 @@ local function register_session(session_id)
   runtime.dirty[session_id] = true
 end
 
--- A session that is gone takes its presence with it. On reload the inbox is
--- kept: the session resumes under the same id in the next process, and mail
--- queued for it should still be there when it does.
-local function unregister_session(session_id, keep_inbox)
+-- A session that is gone takes its presence and its mail with it.
+local function unregister_session(session_id)
   local record = runtime.sessions[session_id]
   if not record then
     return
   end
   remove_file(owner_path(record.id))
-  if not keep_inbox then
-    maki.fs.rm(inbox_path(record.id), { recursive = true, force = true })
-  end
+  maki.fs.rm(inbox_path(record.id), { recursive = true, force = true })
   runtime.sessions[session_id] = nil
   runtime.dirty[session_id] = nil
   runtime.statuses[session_id] = nil
@@ -878,7 +874,16 @@ local function register_status_autocmds()
       if runtime.current_session == session_id then
         runtime.current_session = nil
       end
-      unregister_session(session_id, ev.data.reason == "reload")
+      -- A reload hands the session to the next process under the same id, so
+      -- the record keeps standing: its title, model and directory are still
+      -- true of the resumed session, and the next process takes the record
+      -- over instead of minting an empty one. Any other end takes both.
+      if ev.data.reason == "reload" then
+        runtime.sessions[session_id] = nil
+        runtime.dirty[session_id] = nil
+        return
+      end
+      unregister_session(session_id)
     end,
   })
 end
