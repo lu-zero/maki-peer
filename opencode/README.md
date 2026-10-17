@@ -25,17 +25,16 @@ Then point a one-line file at the entrypoint:
 export { default } from "/absolute/path/to/maki-peer/opencode/src/index.ts"
 ```
 
-Only a bare `.ts` or `.js` file in a discovery directory loads. A package
-directory does not, whether it is named in the `plugins` array by absolute
-path, by relative path, or placed inside `.opencode/plugins/`. OpenCode 2.0.29
-and 2.0.30 both fail those forms silently: no warning, no log line, and no
-entry in `opencode plugin list`, which lists package plugins only. A
-`plugins` array entry that reads correctly can therefore leave the plugin
-simply absent.
+A package directory in a discovery directory loads as of OpenCode 2.0.32,
+verified by probe. On 2.0.29 and 2.0.30 the same layouts fail silently: no
+warning, no log line, and no entry in `opencode plugin list`, which lists
+package plugins only. If you are pinned to one of those versions, use the
+bare `.ts` shim form above.
 
 Do not reach for a symlink of the package directory. A symlinked directory
 reports itself as a link rather than a directory, so discovery skips it. A
-symlinked `.ts` file is fine.
+symlinked `.ts` file is fine. The `plugins` array forms were not re-tested
+on 2.0.32; only the discovery directory layout was verified.
 
 ## Verify
 
@@ -46,14 +45,14 @@ registers a peer per session and refreshes it about every two seconds:
 ls ~/.local/state/maki/peers/owners/ | grep '^oc-'
 ```
 
-Each file is one live session, named `opencode:<last six of the session id>`.
-If nothing appears, the plugin did not load, and the usual cause is the shim
-path above.
+Each file is one live session, named `opencode-` plus eight hex of the peer
+id, which is a hash of the session id. If nothing appears, the plugin did not
+load, and the usual cause is the shim path above.
 
-A restarting server briefly disappears from every peer's list. Unload removes
-this host's presence records, and they reappear within a couple of seconds.
-A peer id is derived from the session id, so a session that comes back keeps
-the same id.
+A restarting server does not disappear. Teardown leaves presence records in
+place and the next load re-adopts the records it wrote, so a session that was
+idle across the restart keeps its identity. A host that exits for real goes
+stale within about fifteen seconds instead.
 
 ## Use
 
