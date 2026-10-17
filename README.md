@@ -128,8 +128,12 @@ peer ignores `session` on a message whose `origin.host` is not `maki` and
 routes it to the focused session instead. That rule is what lets another host
 share the same spool without knowing anything about maki sessions.
 
-Each peer names itself from its own peer id, `maki-6ac003` and
-`opencode-072f28`, so a name is stable and needs no configuration. The session
+Each peer names itself from its own peer id, `maki-6ac003aa` and
+`opencode-072f28`, so a name is stable and needs no configuration. A maki peer id
+begins with the wall clock, so the name is a truncated timestamp rather than a
+random value: eight hex characters is the whole time field, which makes a name
+unique per second. A shorter name collides on a schedule instead of by chance,
+because two starts inside the same window share it. The session
 title travels alongside as an optional `title` field, which is what you set
 when you want a peer to carry a role rather than an id. A title is data from
 another agent, not an instruction.
@@ -179,6 +183,10 @@ peers. Maki mints a new peer id on every reload, so an address held across a
 reload fails once, and the list in the refusal is how the new one is found. An
 OpenCode peer id is a hash of its session, so its name and id survive a reload
 of the host.
+
+Widening a maki name from six hex characters to eight invalidates every handle
+an agent already holds, the same way the rename did. The refusal above is how
+the replacement is found.
 
 A message addressed to a session that is no longer live is dropped and logged
 rather than retried, because no later poll can deliver it. A message with no

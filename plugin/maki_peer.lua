@@ -4,6 +4,7 @@ local MAX_INBOX = 100
 local MAX_BODY_BYTES = 262144
 local MAX_RECORD_BYTES = MAX_BODY_BYTES + 4096
 local MAX_MODEL_READS = 10
+local NAME_HEX_WIDTH = 8
 local OWNER_STALE_SECONDS = 15
 local MESSAGE_TTL_SECONDS = 300
 local PROTOCOL_VERSION = 1
@@ -167,7 +168,7 @@ local MAX_TITLE_RUNES = 64
 -- from its peer id the same way, so both records read as one rule.
 local function peer_name(id)
   local rest = id:gsub("^peer%-", "")
-  return "maki-" .. rest:sub(1, 6)
+  return "maki-" .. rest:sub(1, NAME_HEX_WIDTH)
 end
 
 -- A title is free text written by another agent, so it is treated as data and
