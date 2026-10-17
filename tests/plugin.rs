@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -111,4 +112,86 @@ fn peer_spawn_valid_model_passes_validation() {
     )
     .unwrap_err();
     assert!(err.contains("only the tmux launcher"), "got: {err}");
+}
+
+/// The plugin is one Lua chunk loaded in file order, so a call to a
+/// `local function` sitting above its own declaration resolves to a global,
+/// which is nil, and throws on every call. Nothing else here can catch that: it
+/// needs a live UI, and it fails silently, because `maki.async.run` without
+/// `on_finish` swallows closure errors. A single forward reference shipped three
+/// confident wrong diagnoses before anyone read the file top to bottom, so the
+/// ordering is asserted here instead.
+///
+/// Line based and deliberately narrow. It sees `local function NAME`
+/// declarations with `--` comments cut at the first `--`, which is wrong for the
+/// two argv strings that contain one and harmless there. It cannot see a
+/// shadowing declaration inside a nested block, and it says nothing about a
+/// `local NAME = function` form the plugin does not use.
+#[test]
+fn no_call_sits_above_the_local_function_it_calls() {
+    let src =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("plugin/maki_peer.lua"))
+            .expect("plugin source");
+
+    let mut declared: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut offenders: Vec<String> = Vec::new();
+
+    // Declarations first, in their own pass. Collecting them while walking call
+    // sites inverts the test: a forward reference is precisely a call whose
+    // declaration has not been reached yet, so it would never be found.
+    for (i, raw) in src.lines().enumerate() {
+        let code = match raw.find("--") {
+            Some(at) => &raw[..at],
+            None => raw,
+        };
+        if let Some(rest) = code.trim_start().strip_prefix("local function ") {
+            let name = rest.split(['(', ' ']).next().unwrap_or("").trim();
+            if !name.is_empty() {
+                declared.entry(name).or_insert(i + 1);
+            }
+        }
+    }
+
+    for (i, raw) in src.lines().enumerate() {
+        let line_no = i + 1;
+        let code = match raw.find("--") {
+            Some(at) => &raw[..at],
+            None => raw,
+        };
+
+        let bytes = code.as_bytes();
+        let mut at = 0;
+        while at < bytes.len() {
+            if !(bytes[at].is_ascii_alphabetic() || bytes[at] == b'_') {
+                at += 1;
+                continue;
+            }
+            let start = at;
+            while at < bytes.len() && (bytes[at].is_ascii_alphanumeric() || bytes[at] == b'_') {
+                at += 1;
+            }
+            let member_call = start > 0 && matches!(bytes[start - 1], b'.' | b':');
+            let mut next = at;
+            while next < bytes.len() && bytes[next].is_ascii_whitespace() {
+                next += 1;
+            }
+            if member_call || next >= bytes.len() || bytes[next] != b'(' {
+                continue;
+            }
+            if let Some(&decl_at) = declared.get(&code[start..at])
+                && line_no < decl_at
+            {
+                offenders.push(format!(
+                    "line {line_no} calls {}() declared at line {decl_at}",
+                    &code[start..at]
+                ));
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "a call above its own declaration resolves to nil at runtime:\n  {}",
+        offenders.join("\n  ")
+    );
 }

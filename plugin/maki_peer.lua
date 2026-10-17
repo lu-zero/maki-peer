@@ -18,6 +18,7 @@ local runtime = {
   ticks = 0,
   read_ticks = 0,
   dirty = false,
+  last_poll_err = nil,
   cwd = nil,
   title = nil,
 }
@@ -766,8 +767,18 @@ local function poll()
       maki.log.warn("peer inbox: " .. receive_err)
     end
   end)
+  -- Warn on a poll failure, but once per distinct message. A failure that
+  -- persists is the same line twice a second, and a log nobody can read is its
+  -- own kind of silence. A new failure still warns at once, and recovery clears
+  -- it so a recurrence is not swallowed by the last one.
   if not ok then
-    maki.log.warn("peer poll: " .. tostring(err))
+    local msg = tostring(err)
+    if msg ~= runtime.last_poll_err then
+      runtime.last_poll_err = msg
+      maki.log.warn("peer poll: " .. msg)
+    end
+  else
+    runtime.last_poll_err = nil
   end
   maki.defer_fn(poll, POLL_MS)
 end
