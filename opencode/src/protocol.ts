@@ -29,8 +29,11 @@ export const DETAIL_REFRESH_SECONDS = 300
  */
 export const CLAIM_TIMEOUT_SECONDS = 60
 
-/** Hex characters of the peer id a peer name is built from. */
-export const NAME_HEX_WIDTH = 6
+/** Hex characters of the peer id a peer name is built from. Eight, the whole
+ * time field in a maki id: sequential maki reloads were observed sharing their
+ * first six characters twice in one spool, and six was also observed colliding
+ * on maki names fifteen minutes after the width was chosen. */
+export const NAME_HEX_WIDTH = 8
 /** A title is a label, not a paragraph. */
 export const MAX_TITLE_RUNES = 64
 

@@ -252,9 +252,9 @@ describe("sender identity", () => {
     expect(r.nameFor("ses_abcdef")).not.toBe(r.nameFor("ses_zzzzzz"))
   })
 
-  test("a name is the host plus six hex of the peer id", () => {
-    expect(nameFromPeerID("maki", "peer-6ac003aa-28e1e6e9573-7ded469b")).toBe("maki-6ac003")
-    expect(nameFromPeerID("opencode", "oc-072f2841ee0e9743")).toBe("opencode-072f28")
+  test("a name is the host plus eight hex of the peer id", () => {
+    expect(nameFromPeerID("maki", "peer-6ac003aa-28e1e6e9573-7ded469b")).toBe("maki-6ac003aa")
+    expect(nameFromPeerID("opencode", "oc-072f2841ee0e9743")).toBe("opencode-072f2841")
     // The width is a shared constant, not a habit that drifts per half.
     expect(nameFromPeerID("maki", "peer-6ac003aa")).toBe(`maki-${"6ac003aa".slice(0, NAME_HEX_WIDTH)}`)
     expect(nameFromPeerID("maki", "peer-6ac003aa")).toHaveLength("maki".length + 1 + NAME_HEX_WIDTH)
@@ -505,7 +505,7 @@ describe("peer list lines", () => {
   const oc: Owner = {
     protocol: 1,
     id: "oc-072f2841ee0e9743",
-    name: "opencode-072f28",
+    name: "opencode-072f2841",
     started: 0,
     last_seen: 0,
     status: "working",
@@ -515,14 +515,14 @@ describe("peer list lines", () => {
 
   test("leads with the id the send tool takes", () => {
     const [line] = formatPeerLines([oc], { ids: new Set() })
-    expect(line).toBe("- oc-072f2841ee0e9743  working  opencode/space-bunny-free  opencode-072f28  -  via opencode")
+    expect(line).toBe("- oc-072f2841ee0e9743  working  opencode/space-bunny-free  opencode-072f2841  -  via opencode")
   })
 
   test("renders the title between name and host, and stays one line however the title behaves", () => {
     const titled = { ...oc, title: "reviewer: watching the provider retry path" }
     const [line] = formatPeerLines([titled], { ids: new Set() })
     expect(line).toBe(
-      "- oc-072f2841ee0e9743  working  opencode/space-bunny-free  opencode-072f28  reviewer: watching the provider retry path  via opencode",
+      "- oc-072f2841ee0e9743  working  opencode/space-bunny-free  opencode-072f2841  reviewer: watching the provider retry path  via opencode",
     )
   })
 
@@ -557,7 +557,7 @@ describe("peer list lines", () => {
   })
 
   test("prints a dash for a peer with no title", () => {
-    expect(formatPeerLines([{ ...oc, title: undefined }], { ids: new Set() })[0]).toContain("  opencode-072f28  -  via")
+    expect(formatPeerLines([{ ...oc, title: undefined }], { ids: new Set() })[0]).toContain("  opencode-072f2841  -  via")
   })
 
   test("says so when this host is alone", () => {
