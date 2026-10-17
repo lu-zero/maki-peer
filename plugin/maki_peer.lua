@@ -211,6 +211,11 @@ local function flush_owner()
   end
   owner.last_seen = os.time()
   owner.status = status_now()
+  -- The record is built once but these two keep moving. Assigning nil removes
+  -- the key, which the encoder omits, so a cleared title stops being published
+  -- rather than sticking to whatever was read first.
+  owner.cwd = runtime.cwd
+  owner.title = runtime.title
   local written, write_err = write_json(owner_path(owner.id), owner)
   if not written then
     return nil, write_err
