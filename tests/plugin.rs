@@ -11,11 +11,16 @@ mod common;
 
 const PLUGIN_NAME: &str = "maki-peer";
 
-fn plugin_host() -> (Arc<ToolRegistry>, PluginHost) {
+/// The `TempDir` is returned so the caller holds it. Binding it inside this
+/// function dropped it on return, which deleted the spool the host was still
+/// using: the plugin recreated the directory often enough that tests passed,
+/// and not often enough that `peer_send` sometimes read an owners directory
+/// that was gone and reported that instead of a list of live peers.
+fn plugin_host() -> (tempfile::TempDir, Arc<ToolRegistry>, PluginHost) {
     // The poll loop the plugin schedules from a zero delay timer registers a
     // presence record the first time the runtime yields, so a test that loads
     // the host without redirecting XDG writes into the real spool.
-    let (_temp, _state) = common::isolated_state();
+    let (temp, _state) = common::isolated_state();
     let reg = Arc::new(ToolRegistry::new());
     let host = PluginHost::new(Arc::clone(&reg)).unwrap();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -26,7 +31,7 @@ fn plugin_host() -> (Arc<ToolRegistry>, PluginHost) {
         Default::default(),
     )
     .unwrap();
-    (reg, host)
+    (temp, reg, host)
 }
 
 fn exec_tool(reg: &ToolRegistry, name: &str, input: serde_json::Value) -> Result<String, String> {
@@ -45,7 +50,7 @@ fn exec_tool(reg: &ToolRegistry, name: &str, input: serde_json::Value) -> Result
 
 #[test]
 fn tools_register() {
-    let (reg, _host) = plugin_host();
+    let (_temp, reg, _host) = plugin_host();
     for name in ["peer_list", "peer_send", "peer_broadcast", "peer_spawn"] {
         assert!(reg.has(name), "peer tool {name} should register");
     }
@@ -53,7 +58,7 @@ fn tools_register() {
 
 #[test]
 fn peer_send_reports_an_unmatched_target() {
-    let (reg, _host) = plugin_host();
+    let (_temp, reg, _host) = plugin_host();
     let err = exec_tool(
         &reg,
         "peer_send",
@@ -68,7 +73,7 @@ fn peer_send_reports_an_unmatched_target() {
 
 #[test]
 fn peer_spawn_rejects_unknown_launchers() {
-    let (reg, _host) = plugin_host();
+    let (_temp, reg, _host) = plugin_host();
     let err = exec_tool(
         &reg,
         "peer_spawn",
@@ -80,7 +85,7 @@ fn peer_spawn_rejects_unknown_launchers() {
 
 #[test]
 fn peer_spawn_rejects_malformed_model_specs() {
-    let (reg, _host) = plugin_host();
+    let (_temp, reg, _host) = plugin_host();
     let err = exec_tool(
         &reg,
         "peer_spawn",
@@ -92,7 +97,7 @@ fn peer_spawn_rejects_malformed_model_specs() {
 
 #[test]
 fn peer_spawn_rejects_unresolvable_models() {
-    let (reg, _host) = plugin_host();
+    let (_temp, reg, _host) = plugin_host();
     let err = exec_tool(
         &reg,
         "peer_spawn",
@@ -104,7 +109,7 @@ fn peer_spawn_rejects_unresolvable_models() {
 
 #[test]
 fn peer_spawn_valid_model_passes_validation() {
-    let (reg, _host) = plugin_host();
+    let (_temp, reg, _host) = plugin_host();
     let err = exec_tool(
         &reg,
         "peer_spawn",
