@@ -283,7 +283,7 @@ fn peer_command_opens_a_list_window() {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(
-            text.contains("via maki") && text.contains("(local)"),
+            text.contains("via maki") && text.contains("(you)"),
             "the window should hold the shared list lines, got: {text}"
         );
         assert!(
@@ -553,10 +553,7 @@ fn the_list_marks_local_and_same_dir() {
         .lines()
         .find(|line| line.starts_with("- oc-a  "))
         .unwrap_or_else(|| panic!("got: {out}"));
-    assert_eq!(
-        line, "- oc-a  idle  zai/glm-5  -  via maki  (local)  (same dir)",
-        "got: {line}"
-    );
+    assert_eq!(line, "- oc-a  idle  zai/glm-5  -  via maki", "got: {line}");
     let own = out
         .lines()
         .find(|line| line.contains("(you)"))
@@ -566,8 +563,8 @@ fn the_list_marks_local_and_same_dir() {
         "the id column is the shortest non-colliding prefix, got: {own}"
     );
     assert!(
-        own.contains("(local)"),
-        "the local peer should be marked, got: {own}"
+        !own.contains("(other dir)"),
+        "the session that asked is trivially in its own directory, got: {own}"
     );
     assert!(own.contains("  via maki  "), "got: {own}");
     drop(host);
@@ -590,7 +587,7 @@ fn a_peer_without_a_cwd_is_simply_not_same_dir() {
         .find(|line| line.starts_with("- oc-a  "))
         .unwrap_or_else(|| panic!("got: {out}"));
     assert!(
-        !other.contains("(same dir)"),
+        !other.contains("(other dir)"),
         "an absent cwd must not be guessed, got: {other}"
     );
     drop(host);
@@ -779,7 +776,7 @@ fn two_plugin_hosts_exchange_an_observation() {
     let _first_forward = serve_ui_actions(first_host.ui_action_rx(), SESSION_TITLE);
     let first_output = exec_tool(&first_registry, "peer_list", json!({})).unwrap();
     assert!(first_output.contains(" via maki "), "got: {first_output}");
-    assert!(first_output.contains("(local)"), "got: {first_output}");
+    assert!(first_output.contains("(you)"), "got: {first_output}");
     let first_id = owner_ids(&state)
         .into_iter()
         .next()

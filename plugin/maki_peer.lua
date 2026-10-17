@@ -964,11 +964,10 @@ local function peer_list_lines(self_session_id)
     if peer.id == mine.id then
       line = line .. "  (you)"
     end
-    if host_of(peer) == ORIGIN_HOST then
-      line = line .. "  (local)"
-    end
-    if same_dir(peer, mine) then
-      line = line .. "  (same dir)"
+    -- Untagged means the ordinary case: a local peer in the same directory as
+    -- the session that asked. Only the exceptions earn a tag.
+    if mine.cwd ~= nil and type(peer.cwd) == "string" and not same_dir(peer, mine) then
+      line = line .. "  (other dir)"
     end
     lines[#lines + 1] = line
   end

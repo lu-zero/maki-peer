@@ -177,11 +177,12 @@ delivery is made exclusive by a claim: the message is renamed before it is
 read, an expired claim goes back to the queue, and a poller that died cannot
 wedge an inbox.
 
-Both fields are authoritative for what they report. `(same dir)` compares the
-peer's `cwd` after trimming trailing slashes, and is a directory comparison
-only: two worktrees of one repository are not the same directory, and neither
-is a subdirectory of a monorepo. `peer_broadcast` takes `same_dir_only` to
-reach only the peers sharing that directory.
+Both fields are authoritative for what they report. The list tags only the
+exceptions: `(you)` marks the session that asked, and `(other dir)` marks a
+peer whose `cwd` differs from it, compared after trimming trailing slashes.
+Two worktrees of one repository are not the same directory, and neither is a
+subdirectory of a monorepo. `peer_broadcast` takes `same_dir_only` to reach
+only the peers sharing that directory.
 
 A send to a handle that no longer exists is refused with the list of live
 peers. A Maki peer id is the session's storage id, so it survives a reload: the
