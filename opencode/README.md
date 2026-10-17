@@ -12,8 +12,14 @@ it matches what the Maki side already does.
 
 ## Install
 
-From a checkout, run `bun install` in `opencode/` first so `@opencode/plugin`
-resolves next to the entrypoint, then point a one-line file at it:
+Clone the repository and install the plugin's dependencies:
+
+```sh
+git clone https://github.com/lu-zero/maki-peer
+cd maki-peer/opencode && bun install
+```
+
+Then point a one-line file at the entrypoint:
 
 ```ts title="~/.config/opencode/plugins/maki-peer.ts"
 export { default } from "/absolute/path/to/maki-peer/opencode/src/index.ts"
