@@ -16,6 +16,7 @@ local runtime = {
   current_session = nil,
   statuses = {},
   ticks = 0,
+  read_ticks = 0,
   dirty = false,
   cwd = nil,
   title = nil,
@@ -234,15 +235,21 @@ local function set_owner_model(spec)
   flush_owner()
 end
 
+-- A UI roundtrip only completes from a callback: the loop drains UiAction
+-- between frames, and maki.async.run ties its task to its caller, so a task
+-- started here is cancelled the moment poll returns and the reply never lands.
+-- Called directly from the poll body it answers, which is the sanctioned shape.
 local function report_model()
-  maki.async.run(function()
-    local state = maki.model.get()
-    local spec = nil
-    if type(state) == "table" and type(state.spec) == "string" then
-      spec = state.spec
-    end
-    set_owner_model(spec)
-  end)
+  local state, model_err = maki.model.get()
+  if type(state) ~= "table" then
+    maki.log.warn("peer: model read failed: " .. tostring(model_err))
+    return
+  end
+  local spec = nil
+  if type(state.spec) == "string" then
+    spec = state.spec
+  end
+  set_owner_model(spec)
 end
 
 -- maki.session.read is the authority for status, title and working directory,
@@ -252,30 +259,32 @@ end
 -- One process is one peer here, but a process can hold several sessions, so the
 -- focused session supplies cwd and title. That is the consistent choice: a peer
 -- receives messages into its focused session, so that is the tree it works in.
+--
+-- Throttled to the heartbeat rather than run every tick: read() parks the
+-- callback thread on a UI reply, and the record only needs to be that fresh.
 local function refresh_session()
-  maki.async.run(function()
-    local target = current_session()
-    if not target then
-      return
-    end
-    local snapshot = maki.session.read({ session = target })
-    if type(snapshot) ~= "table" then
-      return
-    end
-    if snapshot.status == "idle" or snapshot.status == "working" or snapshot.status == "needs_input" then
-      runtime.statuses[target] = snapshot.status
-    end
-    local dir = normalize_dir(snapshot.cwd)
-    if dir and dir ~= runtime.cwd then
-      runtime.cwd = dir
-      runtime.dirty = true
-    end
-    local title = sanitize_title(snapshot.title)
-    if title ~= runtime.title then
-      runtime.title = title
-      runtime.dirty = true
-    end
-  end)
+  local target = current_session()
+  if not target then
+    return
+  end
+  local snapshot, read_err = maki.session.read({ session = target })
+  if type(snapshot) ~= "table" then
+    maki.log.warn("peer: session read failed: " .. tostring(read_err))
+    return
+  end
+  if snapshot.status == "idle" or snapshot.status == "working" or snapshot.status == "needs_input" then
+    runtime.statuses[target] = snapshot.status
+  end
+  local dir = normalize_dir(snapshot.cwd)
+  if dir and dir ~= runtime.cwd then
+    runtime.cwd = dir
+    runtime.dirty = true
+  end
+  local title = sanitize_title(snapshot.title)
+  if title ~= runtime.title then
+    runtime.title = title
+    runtime.dirty = true
+  end
 end
 
 local function ensure_registered()
@@ -742,7 +751,11 @@ local function poll()
   -- overlapping polls would both read the same inbox and deliver twice, which
   -- is exactly what the opencode half hit in the field.
   local ok, err = pcall(function()
-    refresh_session()
+    runtime.read_ticks = runtime.read_ticks + 1
+    if runtime.read_ticks >= OWNER_REFRESH_TICKS then
+      runtime.read_ticks = 0
+      refresh_session()
+    end
     local owner, owner_err = ensure_registered()
     if not owner then
       maki.log.warn("peer registration: " .. owner_err)
