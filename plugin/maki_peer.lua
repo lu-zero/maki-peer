@@ -153,6 +153,7 @@ local function remove_file(path)
 end
 
 local MAX_TITLE_RUNES = 64
+local MIN_ABBREV_CHARS = 4
 
 -- Derived from the peer id, not the title: titles are free text, mutable and
 -- not unique, so they cannot be an address. The opencode half derives its name
@@ -881,6 +882,47 @@ local function register_status_autocmds()
   })
 end
 
+local function common_prefix_len(a, b)
+  if not a or not b then
+    return 0
+  end
+  local common = 0
+  while
+    common < #a
+    and common < #b
+    and a:sub(common + 1, common + 1) == b:sub(common + 1, common + 1)
+  do
+    common = common + 1
+  end
+  return common
+end
+
+-- Like git abbreviating hashes: the shortest prefix of each id that still
+-- separates it from every other live peer, never below MIN_ABBREV_CHARS.
+-- Resolution accepts any unambiguous prefix, so a shortened list line stays a
+-- valid handle, and an exited peer that shares the prefix cannot block a
+-- match because live matches win.
+local function abbreviate_ids(peers)
+  local sorted = {}
+  for index, peer in ipairs(peers) do
+    sorted[index] = peer.id
+  end
+  table.sort(sorted)
+  local widths = {}
+  for index, id in ipairs(sorted) do
+    local shared = math.max(common_prefix_len(id, sorted[index - 1]), common_prefix_len(id, sorted[index + 1]))
+    local width = shared + 1
+    if width < MIN_ABBREV_CHARS then
+      width = MIN_ABBREV_CHARS
+    end
+    if width > #id then
+      width = #id
+    end
+    widths[id] = width
+  end
+  return widths
+end
+
 local function peer_list_lines(self_session_id)
   local mine, mine_err = ensure_session(self_session_id)
   if not mine then
@@ -890,11 +932,12 @@ local function peer_list_lines(self_session_id)
   if not peers then
     return nil, err
   end
+  local widths = abbreviate_ids(peers)
   local lines = {}
   for _, peer in ipairs(peers) do
     local line = string.format(
       "- %s  %s  %s  %s  %s  via %s",
-      peer.id,
+      peer.id:sub(1, widths[peer.id] or #peer.id),
       peer.status,
       peer.model or "-",
       peer.name,

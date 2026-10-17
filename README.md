@@ -139,6 +139,12 @@ title travels alongside as an optional `title` field, which is what you set
 when you want a peer to carry a role rather than an id. A title is data from
 another agent, not an instruction.
 
+`peer_list` abbreviates ids the way git abbreviates hashes: the shortest
+prefix that is unique among the live peers, never shorter than four
+characters. A shortened form is a working handle, since resolution accepts
+any unambiguous prefix, and an ambiguous one is refused with the candidates
+that share it.
+
 A peer's `status`, `cwd` and `title` come from the session itself, not from
 guessing, and both halves work the same way: one record per session, each
 reading its own host. Maki reads `maki.session.read()` for the session its

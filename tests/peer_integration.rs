@@ -373,6 +373,41 @@ fn a_name_suffix_resolves_to_a_peer() {
 }
 
 #[test]
+fn an_id_abbreviation_grows_until_the_peers_differ() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+
+    let twins = ["oc-abc123def4567890", "oc-abc123def4567899"];
+    for id in twins {
+        write_owner(&state, &owner_record(id, "opencode-072f28", 1, None, None));
+    }
+    let out = exec_tool(&registry, "peer_list", json!({})).unwrap();
+    for id in twins {
+        let line = out
+            .lines()
+            .find(|line| line.contains(&format!("{id}  ")))
+            .unwrap_or_else(|| panic!("twins collide, the display must widen, got: {out}"));
+        let shown = line[2..]
+            .split("  ")
+            .next()
+            .expect("every line starts with the id column");
+        assert!(
+            id.starts_with(shown) && shown.len() > 4,
+            "{id} must be shown past the floor to stay unique, got: {shown}"
+        );
+    }
+    assert!(
+        twins.iter().all(|id| !out
+            .lines()
+            .any(|line| line.starts_with(&format!("- {}  ", &id[..4])))),
+        "two peers sharing a prefix must not both sit at the floor, got: {out}"
+    );
+    drop(host);
+}
+
+#[test]
 fn an_id_prefix_resolves_to_a_peer() {
     let (_temp, state) = common::isolated_state();
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
@@ -478,11 +513,11 @@ fn the_presence_record_carries_the_working_directory() {
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
     let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
-
     let id = owner_ids(&state)
         .into_iter()
         .next()
         .expect("peer should register");
+
     let record: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(state.join("peers/owners").join(format!("{id}.json"))).unwrap(),
     )
@@ -502,10 +537,6 @@ fn the_list_marks_local_and_same_dir() {
     let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
     let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
-    let id = owner_ids(&state)
-        .into_iter()
-        .next()
-        .expect("peer should register");
 
     write_owner(
         &state,
@@ -520,17 +551,20 @@ fn the_list_marks_local_and_same_dir() {
     let out = exec_tool(&registry, "peer_list", json!({})).unwrap();
     let line = out
         .lines()
-        .find(|line| line.contains("oc-abc123def4567890"))
+        .find(|line| line.contains("opencode-072f28"))
         .unwrap_or_else(|| panic!("got: {out}"));
     assert_eq!(
-        line,
-        "- oc-abc123def4567890  idle  zai/glm-5  opencode-072f28  -  via maki  (local)  (same dir)",
+        line, "- oc-a  idle  zai/glm-5  opencode-072f28  -  via maki  (local)  (same dir)",
         "got: {line}"
     );
     let own = out
         .lines()
-        .find(|line| line.contains(&id))
+        .find(|line| line.contains("(you)"))
         .unwrap_or_else(|| panic!("got: {out}"));
+    assert!(
+        own.starts_with("- peer  "),
+        "the id column is the shortest non-colliding prefix, got: {own}"
+    );
     assert!(
         own.contains("(local)"),
         "the local peer should be marked, got: {own}"
@@ -553,7 +587,7 @@ fn a_peer_without_a_cwd_is_simply_not_same_dir() {
     let out = exec_tool(&registry, "peer_list", json!({})).unwrap();
     let other = out
         .lines()
-        .find(|line| line.contains("oc-abc123def4567890"))
+        .find(|line| line.contains("opencode-072f28"))
         .unwrap_or_else(|| panic!("got: {out}"));
     assert!(
         !other.contains("(same dir)"),
@@ -663,7 +697,7 @@ fn a_title_with_unicode_punctuation_renders_byte_for_byte() {
     let out = exec_tool(&registry, "peer_list", json!({})).unwrap();
     let line = out
         .lines()
-        .find(|line| line.contains("oc-abc123def4567890"))
+        .find(|line| line.contains("opencode-072f28"))
         .unwrap_or_else(|| panic!("got: {out}"));
     // Punctuation and content survive verbatim. Control characters are
     // normalised further out by the tool output layer, so they are asserted
