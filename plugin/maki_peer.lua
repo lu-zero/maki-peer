@@ -20,6 +20,7 @@ local runtime = {
   read_ticks = 0,
   dirty = false,
   last_poll_err = nil,
+  read_pending = false,
   cwd = nil,
   title = nil,
 }
@@ -285,6 +286,33 @@ local function refresh_session()
   -- roundtrip for it. set_owner_model is a no-op when the spec is unchanged.
   if type(snapshot.model) == "string" then
     set_owner_model(snapshot.model)
+  end
+end
+
+-- The refresh runs in a spawned task, not on the poll body. A UI roundtrip is
+-- answered only when the loop drains UiAction between frames, and
+-- ui_roundtrip carries no deadline on purpose because open_editor holds the
+-- loop for as long as it is up. On the poll body that park took presence
+-- flushing and inbox reads down with it, silently. spawn outlives its caller,
+-- so a slow UI now delays the record instead of the loop.
+--
+-- One read in flight at a time: the heartbeat asks every few ticks, and a task
+-- parked on a busy loop would otherwise accumulate one per tick.
+local function request_refresh()
+  if runtime.read_pending then
+    return
+  end
+  runtime.read_pending = true
+  local started, start_err = maki.async.spawn(function()
+    local ok, err = pcall(refresh_session)
+    runtime.read_pending = false
+    if not ok then
+      maki.log.warn("peer refresh: " .. tostring(err))
+    end
+  end)
+  if not started then
+    runtime.read_pending = false
+    maki.log.warn("peer refresh could not start: " .. tostring(start_err))
   end
 end
 
@@ -750,7 +778,7 @@ local function poll()
     runtime.read_ticks = runtime.read_ticks + 1
     if runtime.read_ticks >= OWNER_REFRESH_TICKS then
       runtime.read_ticks = 0
-      refresh_session()
+      request_refresh()
     end
     local _, receive_err = receive_messages()
     if receive_err then

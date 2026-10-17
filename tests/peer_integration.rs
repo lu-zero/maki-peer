@@ -8,7 +8,7 @@ mod common;
 
 use maki_agent::SessionMailbox;
 use maki_agent::tools::ToolRegistry;
-use maki_lua::{ModelRequest, PluginHost, PluginPermissions, SessionRequest, UiAction};
+use maki_lua::{ModelRequest, PluginHost, PluginPermissions, SessionRequest, UiAction, UiReply};
 use maki_storage::id::MakiId;
 use serde_json::json;
 
@@ -33,10 +33,33 @@ fn plugin_host(root: &Path) -> (Arc<ToolRegistry>, PluginHost) {
 /// Answer `maki.model.get` roundtrips the way the UI event loop would, and
 /// forward every other action for the assertions to observe.
 fn serve_ui_actions(rx: flume::Receiver<UiAction>, title: &str) -> mpsc::Receiver<UiAction> {
+    serve_ui_actions_with(rx, title, true)
+}
+
+/// A UI that is attached but not answering `session.read`, which is what a busy
+/// loop looks like: `open_editor` holds the event loop for as long as it is up,
+/// and `ui_roundtrip` carries no deadline on purpose.
+fn serve_ui_actions_ignoring_reads(
+    rx: flume::Receiver<UiAction>,
+    title: &str,
+) -> mpsc::Receiver<UiAction> {
+    serve_ui_actions_with(rx, title, false)
+}
+
+fn serve_ui_actions_with(
+    rx: flume::Receiver<UiAction>,
+    title: &str,
+    answer_reads: bool,
+) -> mpsc::Receiver<UiAction> {
     let (forward_tx, forward_rx) = mpsc::channel();
     let session = MakiId::generate().to_string();
     let title = title.to_owned();
     std::thread::spawn(move || {
+        // Reply channels for reads we refuse to answer, kept alive on purpose.
+        // Dropping one makes recv_async fail at once with UI_DROPPED_ERR, so a
+        // dropped channel models a torn down UI, not a busy one. A busy loop
+        // keeps the channel open and simply never replies, and only that parks.
+        let mut held: Vec<flume::Sender<UiReply>> = Vec::new();
         while let Ok(action) = rx.recv() {
             match action {
                 UiAction::Model {
@@ -59,13 +82,17 @@ fn serve_ui_actions(rx: flume::Receiver<UiAction>, title: &str) -> mpsc::Receive
                     req: SessionRequest::Read { .. },
                     reply_tx,
                 } => {
-                    let _ = reply_tx.send(Ok(json!({
-                        "id": session,
-                        "cwd": SESSION_CWD,
-                        "model": MODEL_SPEC,
-                        "status": "working",
-                        "title": title,
-                    })));
+                    if answer_reads {
+                        let _ = reply_tx.send(Ok(json!({
+                            "id": session,
+                            "cwd": SESSION_CWD,
+                            "model": MODEL_SPEC,
+                            "status": "working",
+                            "title": title,
+                        })));
+                    } else {
+                        held.push(reply_tx);
+                    }
                 }
                 other => {
                     let _ = forward_tx.send(other);
@@ -1001,4 +1028,50 @@ fn a_title_of_only_whitespace_is_not_published() {
         );
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// The liveness property the whole session was about: a UI that is attached
+/// but not answering must not stop delivery. `ui_roundtrip` has no deadline on
+/// purpose, so a read issued on the poll body parks that thread for as long as
+/// the loop stays busy, and the inbox stops draining with no error and
+/// therefore no log line.
+///
+/// This asserts delivery rather than that the record advances, because the
+/// `SessionStatusChanged` handler flushes on its own and would keep the record
+/// moving with the poll dead. A first version of this test watched `last_seen`
+/// and passed against exactly the shape it was meant to reject.
+#[test]
+fn a_busy_ui_does_not_stop_delivery() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions_ignoring_reads(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    let live = MakiId::generate();
+    let mailbox = SessionMailbox::register(live);
+    host.event_handle().fire_autocmd(
+        "SessionStatusChanged",
+        json!({ "session_id": live.to_string(), "status": "idle" }),
+    );
+
+    // Past the tick where a read on the poll body would park the thread for
+    // good, so a delivery that still lands proves the poll is running.
+    std::thread::sleep(Duration::from_secs(3));
+    write_inbound(
+        &state,
+        &id,
+        inbound(&id, "still here", Some(&live.to_string()), Some("maki")),
+    );
+
+    let delivered = wait_for_mailbox(&mailbox);
+    assert!(
+        delivered.contains("still here"),
+        "a busy UI must not stop delivery, got: {delivered}"
+    );
+
+    drop(host);
 }

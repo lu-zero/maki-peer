@@ -131,7 +131,8 @@ fn peer_spawn_valid_model_passes_validation() {
 /// declarations with `--` comments cut at the first `--`, which is wrong for the
 /// two argv strings that contain one and harmless there. It cannot see a
 /// shadowing declaration inside a nested block, and it says nothing about a
-/// `local NAME = function` form the plugin does not use.
+/// `local NAME = function` form the plugin does not use. Strings are not
+/// stripped, so a function name inside one would be reported.
 #[test]
 fn no_call_sits_above_the_local_function_it_calls() {
     let src =
@@ -175,19 +176,32 @@ fn no_call_sits_above_the_local_function_it_calls() {
             while at < bytes.len() && (bytes[at].is_ascii_alphanumeric() || bytes[at] == b'_') {
                 at += 1;
             }
-            let member_call = start > 0 && matches!(bytes[start - 1], b'.' | b':');
-            let mut next = at;
-            while next < bytes.len() && bytes[next].is_ascii_whitespace() {
-                next += 1;
-            }
-            if member_call || next >= bytes.len() || bytes[next] != b'(' {
+            let member = start > 0 && matches!(bytes[start - 1], b'.' | b':');
+            if member {
                 continue;
             }
+            // An identifier that is the target of an assignment is a key or a
+            // variable, not a use: `current_session = nil` in the runtime table
+            // says nothing about the function declared later. `==` is a
+            // comparison and still counts as a use.
+            let mut after = at;
+            while after < bytes.len() && bytes[after] == b' ' {
+                after += 1;
+            }
+            let assigns =
+                after < bytes.len() && bytes[after] == b'=' && bytes.get(after + 1) != Some(&b'=');
+            if assigns {
+                continue;
+            }
+            // Any bare reference counts, not only a call. A function handed to
+            // pcall, or used from inside a closure defined earlier, is just as
+            // out of scope, and a guard that only looked for `name(` passed on
+            // exactly that.
             if let Some(&decl_at) = declared.get(&code[start..at])
                 && line_no < decl_at
             {
                 offenders.push(format!(
-                    "line {line_no} calls {}() declared at line {decl_at}",
+                    "line {line_no} refers to {} declared at line {decl_at}",
                     &code[start..at]
                 ));
             }
