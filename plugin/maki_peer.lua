@@ -153,6 +153,7 @@ local function remove_file(path)
 end
 
 local MAX_TITLE_RUNES = 64
+local MAX_LIST_TITLE_RUNES = 24
 local MIN_ABBREV_CHARS = 4
 
 -- Derived from the peer id, not the title: titles are free text, mutable and
@@ -887,11 +888,7 @@ local function common_prefix_len(a, b)
     return 0
   end
   local common = 0
-  while
-    common < #a
-    and common < #b
-    and a:sub(common + 1, common + 1) == b:sub(common + 1, common + 1)
-  do
+  while common < #a and common < #b and a:sub(common + 1, common + 1) == b:sub(common + 1, common + 1) do
     common = common + 1
   end
   return common
@@ -923,6 +920,20 @@ local function abbreviate_ids(peers)
   return widths
 end
 
+-- The list is one line per peer and the title is the widest thing on it, so
+-- the display cap is tighter than the stored cap. The ellipsis says cut; the
+-- record still carries the full form.
+local function list_title(record)
+  if not record.title then
+    return nil
+  end
+  local cut = utf8.offset(record.title, MAX_LIST_TITLE_RUNES + 1)
+  if not cut then
+    return record.title
+  end
+  return record.title:sub(1, cut - 1) .. "…"
+end
+
 local function peer_list_lines(self_session_id)
   local mine, mine_err = ensure_session(self_session_id)
   if not mine then
@@ -941,7 +952,7 @@ local function peer_list_lines(self_session_id)
       peer.status,
       peer.model or "-",
       peer.name,
-      peer.title or "-",
+      list_title(peer) or "-",
       host_of(peer)
     )
     if peer.id == mine.id then

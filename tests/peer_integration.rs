@@ -680,7 +680,7 @@ fn a_title_with_unicode_punctuation_renders_byte_for_byte() {
 
     // Controls must go, but an en dash and CJK are punctuation and content
     // respectively, and both must survive untouched.
-    let raw = "Maki\u{2013}OpenCode peer\tcommunication \u{1F4A8} plugin";
+    let raw = "Maki\u{2013}OpenCode peer communication \u{1F4A8} plugin";
     write_owner(
         &state,
         &owner_record("oc-abc123def4567890", "opencode-072f28", 1, None, None),
@@ -694,16 +694,29 @@ fn a_title_with_unicode_punctuation_renders_byte_for_byte() {
     .unwrap();
     let _ = raw;
 
+    // The record keeps punctuation and content verbatim, byte for byte.
+    let stored =
+        fs::read_to_string(state.join("peers/owners").join("oc-abc123def4567890.json")).unwrap();
+    assert!(stored.contains("Maki\u{2013}OpenCode"), "got: {stored}");
+    assert!(stored.contains("\u{1F4A8}"), "got: {stored}");
+    assert!(!stored.contains('\n'), "got: {stored}");
+
+    // The list truncates for width and says so with an ellipsis, so the emoji
+    // sits past the cap and must not pretend to be shown.
     let out = exec_tool(&registry, "peer_list", json!({})).unwrap();
     let line = out
         .lines()
         .find(|line| line.contains("opencode-072f28"))
         .unwrap_or_else(|| panic!("got: {out}"));
-    // Punctuation and content survive verbatim. Control characters are
-    // normalised further out by the tool output layer, so they are asserted
-    // absent rather than preserved.
-    assert!(line.contains("Maki\u{2013}OpenCode"), "got: {line}");
-    assert!(line.contains("\u{1F4A8}"), "got: {line}");
+    assert!(
+        line.contains("Maki\u{2013}OpenCode peer commu"),
+        "got: {line}"
+    );
+    assert!(
+        line.contains("\u{2026}"),
+        "a cut title must say so, got: {line}"
+    );
+    assert!(!line.contains("\u{1F4A8}"), "got: {line}");
     assert!(!line.contains('\n') && !line.contains('\r'), "got: {line}");
 }
 

@@ -143,7 +143,9 @@ another agent, not an instruction.
 prefix that is unique among the live peers, never shorter than four
 characters. A shortened form is a working handle, since resolution accepts
 any unambiguous prefix, and an ambiguous one is refused with the candidates
-that share it.
+that share it. A title keeps up to sixty four runes in the record and is cut
+to twenty four with an ellipsis on the list line, which is one line per peer
+and has a widest entry to protect.
 
 A peer's `status`, `cwd` and `title` come from the session itself, not from
 guessing, and both halves work the same way: one record per session, each
