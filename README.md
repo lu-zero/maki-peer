@@ -131,8 +131,8 @@ delivers it into the session the record belongs to. That rule is what lets
 another host share the same spool without knowing anything about maki
 sessions.
 
-Each peer names itself from its own peer id, `maki-6ac003aa` and
-`opencode-072f28`, so a name is stable and needs no configuration. A maki peer
+Each peer names itself from its own peer id, `maki-Cg68nHqT` and
+`opencode-072f2841`, so a name is stable and needs no configuration. A maki peer
 id is the session's storage id, so the name is the first eight characters of
 that id: stable across reloads, like the OpenCode name. The session
 title travels alongside as an optional `title` field, which is what you set
