@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto"
+import { basename } from "node:path"
 
 import {
   GC_MARK_AFTER_SECONDS,
@@ -195,12 +196,20 @@ export class PeerRegistry {
     return taken
   }
 
-  /** Retire a session that no longer exists, so no message can be sent to it. */
+  /**
+   * Retire a session that no longer exists, so no message can be sent to it.
+   *
+   * The inbox goes with the record. A session that is gone has no poller to
+   * drain its mail, so leaving the directory behind strands whatever was
+   * queued for it, expired and read by nobody, forever. The maki half takes
+   * its inbox with the record for the same reason.
+   */
   async retire(sessionID: string): Promise<void> {
     const peer = this.live.get(sessionID)
     if (!peer) return
     this.live.delete(sessionID)
     await this.spool.remove(this.spool.ownerPath(peer.id)).catch(() => {})
+    await this.spool.removeDir(this.spool.inboxPath(peer.id)).catch(() => {})
   }
 
   /**
@@ -375,7 +384,41 @@ export async function sweepStaleOwners(input: {
     }
     await spool.remove(path).catch(() => {})
   }
+
   return report
+}
+
+/**
+ * Remove inbox directories whose owner is gone and that hold nothing.
+ *
+ * Before ids were stable every reload minted one, and the directories piled
+ * up: hundreds of them, none holding mail. This is not the record sweep and
+ * does not need to be one. A record can refresh between a mark and a sweep, so
+ * that one has to mark and re-check. An orphan cannot come back, because
+ * nothing queues to a peer that has no record, so a direct check is enough.
+ *
+ * Empty is the load-bearing part. A directory with any file in it is not
+ * cruft, and a claimed message is a file, so an in-flight delivery blocks the
+ * removal rather than being swept out from under its poller.
+ */
+export async function sweepOrphanInboxes(input: {
+  spool: Spool
+  ownIDs: ReadonlySet<string>
+}): Promise<number> {
+  const { spool } = input
+  let removed = 0
+  for (const dir of await spool.listDirs(spool.inboxesDir())) {
+    const id = basename(dir)
+    if (input.ownIDs.has(id)) continue
+    if (await spool.stat(spool.ownerPath(id))) continue
+    if ((await spool.listFiles(dir)).length > 0) continue
+    // Look again after the emptiness check, so a peer that registered in
+    // between is not swept out from under itself.
+    if (await spool.stat(spool.ownerPath(id))) continue
+    await spool.removeDir(dir).catch(() => {})
+    removed++
+  }
+  return removed
 }
 
 export type ResolveResult = { peer: Owner } | { error: string }

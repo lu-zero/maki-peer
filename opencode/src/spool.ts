@@ -46,6 +46,10 @@ export class Spool {
     return join(this.root, "inboxes", id)
   }
 
+  inboxesDir(): string {
+    return join(this.root, "inboxes")
+  }
+
   /** Where sweeps record what they intend to delete. */
   gcDir(): string {
     return join(this.root, "gc")
@@ -104,6 +108,16 @@ export class Spool {
   async listJson(dir: string): Promise<string[]> {
     const files = await this.listFiles(dir)
     return files.filter((path) => path.endsWith(".json"))
+  }
+
+  /** The directories in a directory, which listFiles cannot see. */
+  async listDirs(dir: string): Promise<string[]> {
+    try {
+      const entries = await readdir(dir, { withFileTypes: true })
+      return entries.filter((entry) => entry.isDirectory()).map((entry) => join(dir, entry.name))
+    } catch {
+      return []
+    }
   }
 
   /** Every file in a directory, claims included. */

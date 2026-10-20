@@ -2,7 +2,7 @@ import { Plugin } from "@opencode/plugin"
 import { join } from "node:path"
 
 import { DETAIL_REFRESH_SECONDS, GC_SWEEP_INTERVAL_SECONDS, ORIGIN_HOST, OWNER_REFRESH_MS, POLL_MS, sameTree, validId, type Owner, type PeerMessage } from "./protocol.js"
-import { applyEventAsync, deliveryText, formatPeerLines, messageRecord, newInstanceId, newMessageId, PeerRegistry, resolvePeer, sweepStaleOwners, type EventData } from "./peer.js"
+import { applyEventAsync, deliveryText, formatPeerLines, messageRecord, newInstanceId, newMessageId, PeerRegistry, resolvePeer, sweepOrphanInboxes, sweepStaleOwners, type EventData } from "./peer.js"
 import { encodeBody, receiveOnce, type DeliveryOutcome } from "./receive.js"
 import { resolveSpoolRoot, Spool } from "./spool.js"
 
@@ -120,16 +120,25 @@ export default Plugin.define({
 
     const runSweep = async (): Promise<void> => {
       if (!announce) return
+      const ownIDs = new Set(registry.ids())
       const report = await sweepStaleOwners({
         spool,
         records: await registry.records(),
-        ownIDs: new Set(registry.ids()),
+        ownIDs,
       })
-      if (report.deleted + report.marked + report.unreadable === 0) return
-      log(
-        "info",
-        `swept ${report.deleted} owner record(s), kept ${report.kept}, unreadable mark(s) ${report.unreadable}`,
-      )
+      // After the record sweep, so this only sees what the sweep left behind.
+      // Its own line, because it answers a different question.
+      const orphans = await sweepOrphanInboxes({ spool, ownIDs })
+      if (report.deleted + report.marked + report.unreadable === 0 && orphans === 0) return
+      if (report.deleted + report.marked + report.unreadable > 0) {
+        log(
+          "info",
+          `swept ${report.deleted} owner record(s), kept ${report.kept}, unreadable mark(s) ${report.unreadable}`,
+        )
+      }
+      if (orphans > 0) {
+        log("info", `removed ${orphans} orphan inbox(es)`)
+      }
     }
 
     let ticks = 0

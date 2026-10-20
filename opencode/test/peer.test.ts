@@ -14,7 +14,7 @@ import {
   statusFor,
   PeerRegistry,
   resolvePeer,
-  sweepStaleOwners,
+  sweepOrphanInboxes, sweepStaleOwners,
   type ResolveResult,
 } from "../src/peer.js"
 import { resolveSpoolRoot, Spool } from "../src/spool.js"
@@ -206,6 +206,19 @@ describe("event folding", () => {
     await applyEventAsync(r, "session.deleted", { sessionID: "ses_a" })
     expect(r.has("ses_a")).toBe(false)
     expect(owners(root).length).toBe(0)
+  })
+
+  test("a deleted session takes its inbox with it, so its mail is not stranded", async () => {
+    const root = tempRoot()
+    const spool = new Spool(root)
+    const r = new PeerRegistry(spool, "opencode")
+    applyEvent(r, "session.inbox.enqueued", { sessionID: "ses_a" })
+    await r.flush(0)
+    const peerId = r.idFor("ses_a")!
+    const dir = await spool.ensureInbox(peerId)
+    await spool.write(join(dir, "m1.json"), { body: "undelivered" })
+    await applyEventAsync(r, "session.deleted", { sessionID: "ses_a" })
+    expect(existsSync(dir)).toBe(false)
   })
 })
 
@@ -789,6 +802,51 @@ describe("mark and sweep", () => {
     expect(report.deleted).toBe(0)
     expect(report.kept).toBe(1)
     expect((await records()).map((owner) => owner.id)).toEqual(["peer-slow"])
+  })
+
+  test("takes an inbox whose owner is gone and that holds nothing", async () => {
+    const { spool } = await setup()
+    // The churn era left directories behind: an id that no longer has a record
+    // and nothing in it. That is cruft and nothing else.
+    const orphan = await spool.ensureInbox("peer-gone")
+    const removed = await sweepOrphanInboxes({ spool, ownIDs: new Set() })
+    expect(removed).toBe(1)
+    expect(existsSync(orphan)).toBe(false)
+  })
+
+  test("leaves an inbox that still holds a message, owner or no owner", async () => {
+    const { spool } = await setup()
+    const orphan = await spool.ensureInbox("peer-gone")
+    await spool.write(join(orphan, "m1.json"), { body: "waiting" })
+    const removed = await sweepOrphanInboxes({ spool, ownIDs: new Set() })
+    expect(removed).toBe(0)
+    expect(existsSync(join(orphan, "m1.json"))).toBe(true)
+  })
+
+  test("leaves a claimed message alone, because a claim is a file in flight", async () => {
+    const { spool } = await setup()
+    const orphan = await spool.ensureInbox("peer-gone")
+    await spool.write(join(orphan, "m1.json.opencode-1-abc.claim"), { body: "in flight" })
+    const removed = await sweepOrphanInboxes({ spool, ownIDs: new Set() })
+    expect(removed).toBe(0)
+    expect(existsSync(join(orphan, "m1.json.opencode-1-abc.claim"))).toBe(true)
+  })
+
+  test("leaves an inbox whose owner is live, even when it holds nothing", async () => {
+    const { spool } = await setup()
+    await write(spool, "peer-live", now - 2)
+    const live = await spool.ensureInbox("peer-live")
+    const removed = await sweepOrphanInboxes({ spool, ownIDs: new Set() })
+    expect(removed).toBe(0)
+    expect(existsSync(live)).toBe(true)
+  })
+
+  test("leaves this host's own inbox alone", async () => {
+    const { spool } = await setup()
+    const own = await spool.ensureInbox("oc-self")
+    const removed = await sweepOrphanInboxes({ spool, ownIDs: new Set(["oc-self"]) })
+    expect(removed).toBe(0)
+    expect(existsSync(own)).toBe(true)
   })
 
   test("takes the inbox with a record it deletes, message and all", async () => {
