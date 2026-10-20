@@ -39,6 +39,7 @@ export const NAME_HEX_WIDTH = 8
 /** A title is a label, not a paragraph. */
 export const MAX_TITLE_RUNES = 64
 export const MAX_TOPIC_RUNES = 48
+export const MAX_MODEL_RUNES = 64
 
 const ID_PATTERN = /^[\w-]+$/
 const MAX_ID_LENGTH = 128
@@ -110,8 +111,8 @@ export function parseOwner(value: unknown): Owner | undefined {
     name: value.name,
     started,
     last_seen: lastSeen,
-    status: typeof value.status === "string" ? value.status : "idle",
-    ...(typeof value.model === "string" ? { model: value.model } : {}),
+    status: typeof value.status === "string" && KNOWN_STATUSES.has(value.status) ? value.status : "idle",
+    ...(titleOf(value.model, MAX_MODEL_RUNES) ? { model: titleOf(value.model, MAX_MODEL_RUNES) } : {}),
     ...(typeof value.cwd === "string" && value.cwd !== "" ? { cwd: value.cwd } : {}),
     ...(titleOf(value.title) ? { title: titleOf(value.title) } : {}),
     ...(typeof value.instance === "string" && value.instance !== "" ? { instance: value.instance } : {}),
@@ -119,6 +120,13 @@ export function parseOwner(value: unknown): Owner | undefined {
     ...(isRecord(value.origin) ? { origin: { host: value.origin.host } } : {}),
   }
 }
+
+/**
+ * The three statuses the protocol knows. A record that says anything else is
+ * read as idle, because the status is printed in the peer list and a free
+ * string there would be a line of somebody else's choosing.
+ */
+const KNOWN_STATUSES = new Set(["idle", "working", "needs_input"])
 
 /**
  * Make a title safe to print on one list line.

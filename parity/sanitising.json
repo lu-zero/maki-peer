@@ -1,0 +1,60 @@
+{
+  "note": "The two halves sanitise a topic the same way, so both test suites read this file and assert the same expectations. The opencode half is the reference: it strips control characters by code point and collapses Unicode whitespace. A case that fails on one side and not the other is a parity defect, not a test to adjust.",
+  "cases": [
+    {
+      "name": "a plain topic is left alone",
+      "input": "box state",
+      "expected": "box state"
+    },
+    {
+      "name": "whitespace runs collapse and the edges are trimmed",
+      "input": "  box\tstate\nnow  ",
+      "expected": "box state now"
+    },
+    {
+      "name": "an ascii control becomes a space",
+      "input": "box\u0001state",
+      "expected": "box state"
+    },
+    {
+      "name": "a c1 control becomes a space",
+      "input": "box\u0085state",
+      "expected": "box state"
+    },
+    {
+      "name": "a no break space is a space",
+      "input": "box\u00a0state",
+      "expected": "box state"
+    },
+    {
+      "name": "a line separator is a space",
+      "input": "box\u2028state",
+      "expected": "box state"
+    },
+    {
+      "name": "a zero width no break space is a space",
+      "input": "box\ufeffstate",
+      "expected": "box state"
+    },
+    {
+      "name": "text that is only invisible is no topic at all",
+      "input": "\u00a0\u2028 ",
+      "expected": null
+    },
+    {
+      "name": "punctuation survives byte for byte",
+      "input": "Maki\u2013OpenCode peer \ud83d\udca8",
+      "expected": "Maki\u2013OpenCode peer \ud83d\udca8"
+    },
+    {
+      "name": "the cap keeps a space that lands on the boundary",
+      "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx more text",
+      "expected": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx "
+    },
+    {
+      "name": "the cap lands on a rune boundary",
+      "input": "\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014",
+      "expected": "\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014"
+    }
+  ]
+}

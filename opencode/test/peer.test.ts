@@ -15,6 +15,7 @@ import {
   statusFor,
   PeerRegistry,
   resolvePeer,
+  topicOf,
   sweepOrphanInboxes, sweepStaleOwners,
   type ResolveResult,
 } from "../src/peer.js"
@@ -754,6 +755,22 @@ describe("surviving a reload", () => {
     const anon = new PeerRegistry(spool)
     expect(anon.reclaim(await anon.records())).toBe(0)
   })
+})
+
+/**
+ * The shared fixture. Both halves read this file and assert the same
+ * expectations, so a rule that drifts on one side only is a parity defect
+ * rather than two suites that each agree with themselves.
+ */
+const PARITY_CASES: { name: string; input: string; expected: string | null }[] = JSON.parse(
+  readFileSync(join(import.meta.dir, "..", "..", "parity", "sanitising.json"), "utf8"),
+).cases
+
+test("the topic sanitising matches the shared fixture", () => {
+  expect(PARITY_CASES.length).toBeGreaterThan(0)
+  for (const c of PARITY_CASES) {
+    expect(topicOf(c.input), c.name).toBe(c.expected ?? undefined)
+  }
 })
 
 test("gives a receiving session the sender name before the id, one space apart", () => {
