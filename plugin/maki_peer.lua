@@ -4,6 +4,7 @@ local MAX_INBOX = 100
 local MAX_BODY_BYTES = 262144
 local MAX_RECORD_BYTES = MAX_BODY_BYTES + 4096
 local NAME_HEX_WIDTH = 8
+local MAX_NOTICE_RUNES = 100
 local OWNER_STALE_SECONDS = 15
 local MESSAGE_TTL_SECONDS = 300
 local PROTOCOL_VERSION = 1
@@ -659,6 +660,48 @@ local function delivery_text(message)
   return string.format("[peer %s %s] %s", message.from_name, message.from, message.body)
 end
 
+-- A step is one line, so the body is flattened to one line and cut. The whole
+-- message stays in the session, where the model reads it, so the step only has
+-- to say what about.
+local function body_line(message)
+  local flat = message.body:gsub("%c", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
+  if flat == "" then
+    flat = "(no text)"
+  end
+  local cut = utf8.offset(flat, MAX_NOTICE_RUNES + 1)
+  if cut then
+    flat = flat:sub(1, cut - 1) .. "…"
+  end
+  return flat
+end
+
+-- A delivered message reaches the model as an observation, and the transcript
+-- does not show observations, so without this the user sees nothing at all.
+-- A chat item draws the message as a step, the way the monitor draws a job
+-- exit, and the sender's short name is the label, which the host paints in
+-- the colour of a tool name. A host without chat items falls back to a notice
+-- in the status bar.
+--
+-- A step cannot name a session: it lands in the transcript the user is looking
+-- at, which is where attention belongs, and it may be a transcript other than
+-- the one the message went to. The step says so when that is the case, so the
+-- reader does not look for the message in the wrong place.
+local function draw_message(message, target)
+  local body = body_line(message)
+  local focused = runtime.current_session
+  local elsewhere = ""
+  if focused and target and focused ~= target then
+    elsewhere = " (another session)"
+  end
+  if type(maki.ui.chat_item) == "function" then
+    local id = "peer:" .. message.id
+    maki.ui.chat_item({ id = id, label = message.from_name, title = body, status = "running" })
+    maki.ui.chat_item({ id = id, label = message.from_name, status = "done", detail = body .. elsewhere })
+    return
+  end
+  maki.notify(body, "info", { title = message.from_name })
+end
+
 -- A session id only means something to the host that minted it. An id from
 -- another host cannot name a session here, so honour it only for our own.
 local function message_session(message)
@@ -695,6 +738,13 @@ local function deliver_message(path, message, inbox_session_id)
   local removed, remove_err = remove_file(path)
   if not removed then
     maki.log.error("peer: delivered " .. message.id .. " but could not remove it: " .. tostring(remove_err))
+  end
+  -- The session records the message, but the transcript does not show it, so
+  -- the step is what tells the user a peer wrote. A step that raises must not
+  -- take the rest of the poll down with it.
+  local shown, draw_err = pcall(draw_message, message, target)
+  if not shown then
+    maki.log.warn("peer step: " .. tostring(draw_err))
   end
   return "delivered", nil
 end

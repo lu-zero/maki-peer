@@ -122,6 +122,21 @@ The bundled peer loop delivers messages with `maki.session.notify`, removes
 them after delivery, and fires a `PeerMessage` autocmd after successful
 delivery.
 
+A delivered message reaches the model as an observation, and the transcript
+does not show observations, so every delivery also draws a step in the
+transcript, the way the monitor draws a job exit. The sender's short name is
+the label of the step, which the host paints in the colour of a tool name,
+and the message is the text of the step.
+
+A step cannot name a session, so it lands in the transcript the user is
+looking at. A message that went to another session says so on the step, so the
+reader does not go looking for it in the wrong place.
+
+The step needs a host that has `maki.ui.chat_item`. Not every build of the
+same version has it, so the plugin checks first and falls back to a notice in
+the status bar when it is missing. Both paths deliver the message, and only
+the shape of the notice differs.
+
 ## Delivery
 
 A message carries the `origin` host that queued it. The `session` field names
