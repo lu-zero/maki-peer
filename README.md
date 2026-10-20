@@ -251,7 +251,20 @@ On the OpenCode side a session becomes a peer once the plugin observes an
 event for it, because OpenCode offers plugins no way to list existing
 sessions. `opencode/README.md` has the details.
 
-One difference between the halves is known and not yet fixed. The Maki half
-strips control characters by byte, so it keeps U+0080 to U+009F, and the
-OpenCode half strips them by code point, so it does not. A title or a topic
-carrying one of those is stored differently depending on which half wrote it.
+One difference between the halves was known and is now fixed. The Maki half
+stripped control characters by byte, so it kept U+0080 to U+009F, and the
+OpenCode half stripped them by code point, so it did not. A title or a topic
+carrying one of those was stored differently depending on which half wrote
+it, and so was a title carrying a no break space or a line separator, which
+one half collapsed and the other kept.
+
+Both halves now strip the same characters: control characters by code point,
+the Unicode space separators, the two line separators and the zero width no
+break space, then the whitespace runs collapse to one space and the edges are
+trimmed. `parity/sanitising.json` says what that means in examples, and both
+test suites read it, so a rule that drifts on one side fails on both.
+
+A record written by another host is free text, so both halves sanitise it on
+the way in: the title like a title, the model like a title with a smaller cap,
+and the status against the three the protocol knows. A status that is none of
+them reads as idle. Nothing a peer writes can put a second row in the list.

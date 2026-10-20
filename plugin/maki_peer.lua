@@ -156,7 +156,14 @@ end
 local MAX_TITLE_RUNES = 64
 local MAX_LIST_TITLE_RUNES = 24
 local MAX_TOPIC_RUNES = 48
+local MAX_MODEL_RUNES = 64
+local MAX_NAME_RUNES = 32
 local MIN_ABBREV_CHARS = 4
+
+-- The three statuses the protocol knows. A record that says anything else is
+-- read as idle, because the status is printed in the peer list and a free
+-- string there would be a line of somebody else's choosing.
+local KNOWN_STATUSES = { idle = true, working = true, needs_input = true }
 
 -- Derived from the peer id, not the title: titles are free text, mutable and
 -- not unique, so they cannot be an address. The opencode half derives its name
@@ -164,6 +171,46 @@ local MIN_ABBREV_CHARS = 4
 local function peer_name(id)
   local rest = id:gsub("^peer%-", "")
   return "maki-" .. rest:sub(1, NAME_HEX_WIDTH)
+end
+
+-- The characters that are control or whitespace to a reader but not to the C
+-- locale: the C1 range, the Unicode space separators, the two line separators
+-- and the zero width no break space. Lua's %c and %s are byte-wise and ASCII
+-- only, so without this they survive here and are gone on the opencode half,
+-- and the two halves print a title one byte apart.
+--
+-- The list is explicit on purpose. A range over the UTF-8 bytes of the space
+-- separators would swallow the punctuation that lives between them, and the
+-- em dash is in that range.
+local INVISIBLE = {
+  "\194[\128-\159]", -- C1 controls, U+0080 to U+009F
+  "\194\160", -- no break space
+  "\225\154\128", -- ogham space mark
+  "\226\128\128",
+  "\226\128\129",
+  "\226\128\130",
+  "\226\128\131",
+  "\226\128\132",
+  "\226\128\133",
+  "\226\128\134",
+  "\226\128\135",
+  "\226\128\136",
+  "\226\128\137",
+  "\226\128\138", -- U+2000 to U+200A, the en quad to the hair space
+  "\226\128\168",
+  "\226\128\169", -- U+2028 and U+2029, the line and paragraph separators
+  "\226\128\175", -- U+202F, the narrow no break space
+  "\226\129\159", -- U+205F, the medium mathematical space
+  "\227\128\128", -- U+3000, the ideographic space
+  "\239\187\191", -- U+FEFF, the zero width no break space
+}
+
+-- Every one of them is a space, so a run of them collapses with the rest.
+local function strip_invisible(text)
+  for _, pattern in ipairs(INVISIBLE) do
+    text = text:gsub(pattern, " ")
+  end
+  return text
 end
 
 -- Free text written by another agent is treated as data and never as markup:
@@ -175,7 +222,7 @@ local function sanitize_text(text, cap)
   if type(text) ~= "string" then
     return nil
   end
-  local flat = text:gsub("%c", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
+  local flat = strip_invisible(text):gsub("%c", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
   if flat == "" then
     return nil
   end
@@ -201,6 +248,10 @@ local function register_session(session_id)
     started = os.time(),
     last_seen = os.time(),
     status = session_status(session_id),
+    -- The host that wrote the record, the way the opencode half writes it. A
+    -- reader that finds no origin reads the record as this host's, so the two
+    -- halves read a record the same way.
+    origin = { host = ORIGIN_HOST },
   }
   -- Optional on purpose. Bumping PROTOCOL_VERSION would make an upgraded half
   -- invisible to a half that was not upgraded, since readers reject any record
@@ -396,6 +447,14 @@ local function scan_owners()
         and tonumber(record.last_seen)
       then
         record.age = now - tonumber(record.last_seen)
+        -- A record is written by another agent, so its free text is data and
+        -- never markup. The opencode half sanitises a title when it reads a
+        -- record, and the two halves have to read the same.
+        record.title = sanitize_title(record.title)
+        record.model = sanitize_text(record.model, MAX_MODEL_RUNES)
+        if not KNOWN_STATUSES[record.status] then
+          record.status = "idle"
+        end
         peers[#peers + 1] = record
       end
     end
@@ -530,6 +589,16 @@ local function resolve_target(query, self_id)
   return nil, string.format("peer %s last refreshed %ds ago; it may have exited%s", peer_label(peer), peer.age, many)
 end
 
+-- The kind is one of two words, and a kind nobody knows is a mistake worth
+-- reporting rather than a message to send. Both halves refuse it the same
+-- way, and they refuse it before anything is queued.
+local function check_kind(kind)
+  if kind == nil or kind == "observation" or kind == "status" then
+    return nil
+  end
+  return "kind must be observation or status"
+end
+
 local function new_message_id(owner_id, to)
   for _ = 1, 10 do
     local id = string.format("%s-%x-%x", owner_id, os.time(), math.random(0, 0x7fffffff))
@@ -602,11 +671,16 @@ local function queue_message(owner, target, body, opts)
     to = target.id,
     kind = kind,
     body = encoded_body,
-    session = opts.session,
     origin = { host = ORIGIN_HOST },
     created = os.time(),
     expires = os.time() + ttl,
   }
+  -- A session id only means something on the host that minted it, so it is
+  -- only written when the receiver is this host and could act on it. The
+  -- opencode half writes it the same way.
+  if opts.session and host_of(target) == ORIGIN_HOST then
+    message.session = opts.session
+  end
   -- The topic is optional, and it is sanitised here so the record holds
   -- something a reader can print. A message without one is still a message.
   local topic = sanitize_text(opts.topic, MAX_TOPIC_RUNES)
@@ -646,14 +720,18 @@ local function broadcast_message(body, opts, self_session_id)
     return nil, list_err
   end
   local same_dir_only = opts.same_dir_only == true
-  local receipts = {}
+  -- Only the messages that were really queued are counted. A message that was
+  -- rejected is not queued, and the opencode half does not count it either.
+  local queued = 0
   for _, peer in ipairs(peers) do
     if peer.id ~= mine.id and (not same_dir_only or same_dir(peer, mine)) then
-      local receipt, err = queue_message(mine, peer, body, opts)
-      receipts[#receipts + 1] = receipt or { peer_id = peer.id, state = "rejected", error = err }
+      local receipt = queue_message(mine, peer, body, opts)
+      if receipt then
+        queued = queued + 1
+      end
     end
   end
-  return receipts, nil
+  return queued, nil
 end
 
 local function valid_message(message, owner_id)
@@ -696,7 +774,7 @@ end
 -- message stays in the session, where the model reads it, so the step only has
 -- to say what about.
 local function body_line(message)
-  local flat = message_body(message):gsub("%c", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
+  local flat = strip_invisible(message_body(message)):gsub("%c", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
   if flat == "" then
     flat = "(no text)"
   end
@@ -725,13 +803,17 @@ local function draw_message(message, target)
   if focused and target and focused ~= target then
     elsewhere = " (another session)"
   end
+  -- The label is the sender's short name and it sits on one line of the
+  -- transcript, so it is sanitised like any other free text. A name is the
+  -- sender's own, so this only matters for a record that was forged.
+  local label = sanitize_text(message.from_name, MAX_NAME_RUNES) or "peer"
   if type(maki.ui.chat_item) == "function" then
     local id = "peer:" .. message.id
-    maki.ui.chat_item({ id = id, label = message.from_name, title = body, status = "running" })
-    maki.ui.chat_item({ id = id, label = message.from_name, status = "done", detail = body .. elsewhere })
+    maki.ui.chat_item({ id = id, label = label, title = body, status = "running" })
+    maki.ui.chat_item({ id = id, label = label, status = "done", detail = body .. elsewhere })
     return
   end
-  maki.notify(body, "info", { title = message.from_name })
+  maki.notify(body, "info", { title = label })
 end
 
 -- A session id only means something to the host that minted it. An id from
@@ -1196,6 +1278,10 @@ maki.api.register_tool({
     },
   },
   handler = function(input, ctx)
+    local kind_err = check_kind(input.kind)
+    if kind_err then
+      return { llm_output = kind_err, is_error = true }
+    end
     local receipt, err = send_message(input.peer_id, input.message, {
       session = input.session,
       kind = input.kind,
@@ -1223,16 +1309,20 @@ maki.api.register_tool({
     },
   },
   handler = function(input, ctx)
-    local receipts, err = broadcast_message(input.message, {
+    local kind_err = check_kind(input.kind)
+    if kind_err then
+      return { llm_output = kind_err, is_error = true }
+    end
+    local queued, err = broadcast_message(input.message, {
       session = input.session,
       kind = input.kind,
       topic = input.topic,
       same_dir_only = input.same_dir_only,
     }, ctx and ctx:session_id())
-    if not receipts then
+    if not queued then
       return { llm_output = err or "peer broadcast failed", is_error = true }
     end
-    return "Queued " .. tostring(#receipts) .. " peer messages."
+    return "Queued " .. tostring(queued) .. " peer messages."
   end,
 })
 

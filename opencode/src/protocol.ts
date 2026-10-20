@@ -48,6 +48,17 @@ export function validId(id: unknown): id is string {
   return typeof id === "string" && id.length > 0 && id.length <= MAX_ID_LENGTH && ID_PATTERN.test(id)
 }
 
+/**
+ * The kind is one of two words, and a kind nobody knows is a mistake worth
+ * reporting rather than a message to send. Both halves refuse it the same
+ * way, and they refuse it before anything is queued.
+ */
+export function kindOf(value: unknown): "observation" | "status" {
+  if (value === undefined || value === "" || value === "observation") return "observation"
+  if (value === "status") return "status"
+  throw new Error("kind must be observation or status")
+}
+
 export type PeerStatus = "idle" | "working" | "needs_input"
 
 export type Owner = {
@@ -156,8 +167,14 @@ export function sameTree(a: { cwd?: string }, b: { cwd?: string }): boolean {
   return stripTrailingSlash(a.cwd) === stripTrailingSlash(b.cwd)
 }
 
+/**
+ * A directory is the same directory however many slashes end it, and the root
+ * is the root. The maki half strips every trailing slash and keeps the root,
+ * and the two halves have to compare directories the same way.
+ */
 function stripTrailingSlash(path: string): string {
-  return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path
+  const trimmed = path.replace(/\/+$/, "")
+  return trimmed === "" ? "/" : trimmed
 }
 
 /**

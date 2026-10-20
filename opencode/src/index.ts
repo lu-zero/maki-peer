@@ -1,8 +1,8 @@
 import { Plugin } from "@opencode/plugin"
 import { join } from "node:path"
 
-import { DETAIL_REFRESH_SECONDS, GC_SWEEP_INTERVAL_SECONDS, ORIGIN_HOST, OWNER_REFRESH_MS, POLL_MS, sameTree, validId, type Owner, type PeerMessage } from "./protocol.js"
-import { applyEventAsync, deliveryText, formatPeerLines, messageRecord, newInstanceId, newMessageId, PeerRegistry, resolvePeer, sweepOrphanInboxes, sweepStaleOwners, type EventData } from "./peer.js"
+import { DETAIL_REFRESH_SECONDS, GC_SWEEP_INTERVAL_SECONDS, ORIGIN_HOST, OWNER_REFRESH_MS, POLL_MS, kindOf, sameTree, validId, type Owner, type PeerMessage } from "./protocol.js"
+import { applyEventAsync, broadcastTo, deliveryText, formatPeerLines, messageRecord, newInstanceId, newMessageId, PeerRegistry, resolvePeer, sweepOrphanInboxes, sweepStaleOwners, type EventData } from "./peer.js"
 import { encodeBody, receiveOnce, type DeliveryOutcome } from "./receive.js"
 import { resolveSpoolRoot, Spool } from "./spool.js"
 
@@ -218,8 +218,30 @@ export default Plugin.define({
 
     const self = (): { ids: Set<string>; cwd?: string } => ({ ids: new Set(registry.ids()) })
 
-    const listOutput = async (sessionID?: string): Promise<string> =>
-      formatPeerLines(await registry.all(), { ...self(), sessionID }).join("\n")
+    /**
+     * The directory of the session that is acting, read from the host at the
+     * moment it acts.
+     *
+     * The published record cannot answer this: two processes host this plugin
+     * and they write the same record, so the directory in it flips between
+     * values every poll. The host knows the directory of the session that is
+     * asking, and that is the one a directory comparison is about. The maki
+     * half compares the same thing and does it the same way.
+     */
+    const ownDirectory = async (sessionID?: string): Promise<string | undefined> => {
+      if (!sessionID) return undefined
+      try {
+        const info = await ctx.session.get({ sessionID: sessionID as never })
+        return info.location?.directory
+      } catch {
+        return undefined
+      }
+    }
+
+    const listOutput = async (sessionID?: string): Promise<string> => {
+      const cwd = await ownDirectory(sessionID)
+      return formatPeerLines(await registry.all(), { ...self(), cwd, sessionID }).join("\n")
+    }
 
     /** Broadcast targets, resolved in one pass instead of rescanning per peer. */
     /**
@@ -236,7 +258,8 @@ const ownID = (sessionID?: string): string[] => {
 const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: boolean): Promise<Owner[]> => {
   const mine = ownID(fromSessionID)
   const peers = await registry.all()
-  return peers.filter((peer) => !mine.includes(peer.id) && (!sameDirOnly || sameTree(peer, self())))
+  const cwd = sameDirOnly ? await ownDirectory(fromSessionID) : undefined
+  return peers.filter((peer) => !mine.includes(peer.id) && (!sameDirOnly || sameTree(peer, { cwd })))
 }
 
     const queue = async (
@@ -298,7 +321,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
           const args = readArgs(input)
           if (!args.peer_id) throw new Error("peer_id is required")
           if (!args.message) throw new Error("message is required")
-          const kind = args.kind === "status" ? "status" : "observation"
+          const kind = kindOf(args.kind)
           const resolved = resolvePeer(await registry.records(), args.peer_id, undefined, ownID(context.sessionID))
           if ("error" in resolved) throw new Error(resolved.error)
           const result = await queue(resolved.peer, args.message, kind, context.sessionID, args.session, args.topic)
@@ -327,7 +350,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
         execute: async (input, context) => {
           const args = readArgs(input)
           if (!args.message) throw new Error("message is required")
-          const kind = args.kind === "status" ? "status" : "observation"
+          const kind = kindOf(args.kind)
           const sameDirOnly = args.same_dir_only === true
           const targets = await broadcastTargets(context.sessionID, sameDirOnly)
           let queued = 0
@@ -335,9 +358,9 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
             const result = await queue(peer, args.message, kind, context.sessionID, args.session, args.topic)
             if (!("error" in result)) queued++
           }
-          if (queued === 0 && sameDirOnly) {
-            return { content: "Queued 0 peer messages. This host reports no directory, so same_dir_only matched no peer." }
-          }
+          // The count is the count of messages that were really queued, and
+          // the wording is the maki half's wording, because an agent that has
+          // learned one set uses the other the same way.
           return { content: `Queued ${queued} peer messages.` }
         },
       })

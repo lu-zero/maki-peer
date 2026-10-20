@@ -3,10 +3,11 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, readdirSync,
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { GC_MARK_AFTER_SECONDS, MAX_TITLE_RUNES, NAME_HEX_WIDTH, parseMessage, parseOwner, sameTree, titleOf, validId, type Owner } from "../src/protocol.js"
+import { GC_MARK_AFTER_SECONDS, MAX_TITLE_RUNES, NAME_HEX_WIDTH, kindOf, parseMessage, parseOwner, sameTree, titleOf, validId, type Owner } from "../src/protocol.js"
 import {
   applyEvent,
   applyEventAsync,
+  broadcastTo,
   deliveryText,
   formatPeerLines,
   messageRecord,
@@ -1122,5 +1123,37 @@ describe("claims", () => {
     await mine.pump()
     expect(mine.delivered).toEqual([])
     expect(files(join(r, "inboxes", mine.peerID))).toEqual([`${claimed.slice(claimed.lastIndexOf("/") + 1)}`])
+  })
+})
+
+describe("the rules both halves share", () => {
+  test("a kind nobody knows is refused, and an absent one is an observation", () => {
+    expect(kindOf(undefined)).toBe("observation")
+    expect(kindOf("")).toBe("observation")
+    expect(kindOf("observation")).toBe("observation")
+    expect(kindOf("status")).toBe("status")
+    expect(() => kindOf("note")).toThrow("kind must be observation or status")
+  })
+
+  test("a rejected message is not counted as queued", async () => {
+    const peers = [
+      { id: "oc-1", name: "one" },
+      { id: "oc-2", name: "two" },
+      { id: "oc-3", name: "three" },
+    ] as Owner[]
+    const queued = await broadcastTo(peers, async (peer) =>
+      peer.id === "oc-2" ? { error: "the body is too large" } : { id: "m1", peer: peer.id },
+    )
+    // The middle one was rejected, so it is not on its way.
+    expect(queued).toBe(2)
+  })
+
+  test("a directory is the same directory however many slashes end it", () => {
+    expect(sameTree({ cwd: "/home/agent/project" }, { cwd: "/home/agent/project/" })).toBe(true)
+    expect(sameTree({ cwd: "/home/agent/project//" }, { cwd: "/home/agent/project" })).toBe(true)
+    expect(sameTree({ cwd: "/" }, { cwd: "/" })).toBe(true)
+    expect(sameTree({ cwd: "/home/agent/project" }, { cwd: "/home/agent/other" })).toBe(false)
+    // A peer that reports no directory is not in the same tree as anybody.
+    expect(sameTree({}, { cwd: "/home/agent/project" })).toBe(false)
   })
 })

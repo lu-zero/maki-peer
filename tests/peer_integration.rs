@@ -1291,6 +1291,262 @@ fn a_step_is_labelled_with_the_sender() {
     drop(host);
 }
 
+/// The two halves are meant to sanitise a topic the same way, and the fixture
+/// is the shared statement of that. The opencode half reads it too, so a rule
+/// that drifts on one side fails on both instead of passing on the side that
+/// moved.
+#[test]
+fn the_topic_sanitising_matches_the_shared_fixture() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+
+    let fixture: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("parity/sanitising.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    let cases = fixture["cases"].as_array().expect("the fixture has cases");
+
+    let target = "oc-fixture0000000000";
+    write_owner(
+        &state,
+        &owner_record(target, "opencode-fixture", 1, None, None),
+    );
+    for case in cases {
+        let name = case["name"].as_str().expect("a case has a name");
+        exec_tool(
+            &registry,
+            "peer_send",
+            json!({
+                "peer_id": "oc-fixture",
+                "message": name,
+                "topic": case["input"],
+            }),
+        )
+        .unwrap();
+    }
+
+    let inbox = state.join("peers/inboxes").join(target);
+    let mut queued: Vec<(String, Option<String>)> = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while queued.len() < cases.len() {
+        for entry in fs::read_dir(&inbox).expect("the inbox should exist") {
+            let path = entry.unwrap().path();
+            let Ok(text) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(record) = serde_json::from_str::<serde_json::Value>(&text) else {
+                continue;
+            };
+            let body = record["body"].as_str().unwrap_or_default().to_owned();
+            if queued.iter().any(|(seen, _)| *seen == body) {
+                continue;
+            }
+            let topic = record
+                .get("topic")
+                .and_then(|value| value.as_str())
+                .map(|value| value.to_owned());
+            queued.push((body, topic));
+        }
+        assert!(Instant::now() < deadline, "not every case was queued");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    for case in cases {
+        let name = case["name"].as_str().expect("a case has a name");
+        let expected = case["expected"].as_str().map(|value| value.to_owned());
+        let actual = queued
+            .iter()
+            .find(|(body, _)| body == name)
+            .map(|(_, topic)| topic.clone())
+            .unwrap_or_else(|| panic!("the case {name} was not queued"));
+        assert_eq!(actual, expected, "the case {name} sanitised differently");
+    }
+    drop(host);
+}
+
+/// A title in a record written by another host is free text, so it is
+/// sanitised on the way in, the way the opencode half does when it reads a
+/// record. A title with a newline in it would otherwise put a second row in
+/// the list, which is a line of somebody else's choosing.
+#[test]
+fn a_foreign_title_is_sanitised_on_the_way_in() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+
+    let mut record = owner_record("oc-abc123def4567890", "opencode-072f28", 1, None, None);
+    record["title"] = json!("  first\nsecond  ");
+    fs::write(
+        state.join("peers/owners").join("oc-abc123def4567890.json"),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
+
+    let out = exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let line = out
+        .lines()
+        .find(|line| line.starts_with("- oc-a  "))
+        .unwrap_or_else(|| panic!("got: {out}"));
+    assert!(line.contains("first second"), "got: {line}");
+    assert!(!out.contains("\n- oc-a  \nsecond"), "got: {out}");
+    drop(host);
+}
+
+/// A status is one of three words, so a record that says anything else is
+/// read as idle rather than printed as it came.
+#[test]
+fn an_unknown_status_from_a_foreign_record_is_read_as_idle() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+
+    let mut record = owner_record("oc-abc123def4567890", "opencode-072f28", 1, None, None);
+    record["status"] = json!("idle\n- oc-fake  idle  model  title  via maki");
+    fs::write(
+        state.join("peers/owners").join("oc-abc123def4567890.json"),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
+
+    let out = exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let line = out
+        .lines()
+        .find(|line| line.starts_with("- oc-a  "))
+        .unwrap_or_else(|| panic!("got: {out}"));
+    assert!(line.contains("idle"), "got: {line}");
+    assert!(!out.contains("oc-fake"), "got: {out}");
+    drop(host);
+}
+
+/// The count a broadcast reports is the count of messages that were really
+/// queued. A message that was rejected is not queued, so counting it would
+/// tell the sender a message is on its way when it is not. The opencode half
+/// counts the same way.
+#[test]
+fn a_broadcast_counts_only_the_messages_it_queued() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+
+    write_owner(
+        &state,
+        &owner_record("oc-abc123def4567890", "opencode-072f28", 1, None, None),
+    );
+    // A body past the cap is rejected by every peer, so nothing is queued.
+    let out = exec_tool(
+        &registry,
+        "peer_broadcast",
+        json!({ "message": "x".repeat(300_000) }),
+    )
+    .unwrap();
+    assert_eq!(out, "Queued 0 peer messages.", "got: {out}");
+    drop(host);
+}
+
+/// A session id only means something on the host that minted it, so it is
+/// written only for a peer on this host. The opencode half writes it the same
+/// way, and the record is the same on both sides.
+#[test]
+fn a_session_is_written_only_for_a_peer_on_this_host() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+
+    // A maki peer: its record carries no origin, so it is on this host.
+    write_owner(
+        &state,
+        &owner_record("oc-maki000000000000", "maki-CgE15Mnu", 1, None, None),
+    );
+    // An opencode peer: its record names its host, so it is not.
+    let mut foreign = owner_record("oc-opencode00000000", "opencode-072f28", 1, None, None);
+    foreign["origin"] = json!({ "host": "opencode" });
+    fs::write(
+        state.join("peers/owners").join("oc-opencode00000000.json"),
+        serde_json::to_vec(&foreign).unwrap(),
+    )
+    .unwrap();
+
+    let session = MakiId::generate();
+    for peer in ["oc-maki", "oc-opencode"] {
+        exec_tool(
+            &registry,
+            "peer_send",
+            json!({
+                "peer_id": peer,
+                "message": format!("to {peer}"),
+                "session": session.to_string(),
+            }),
+        )
+        .unwrap();
+    }
+
+    let mut seen: Vec<(String, bool)> = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while seen.len() < 2 {
+        for id in ["oc-maki000000000000", "oc-opencode00000000"] {
+            let path = state.join("peers/inboxes").join(id);
+            let Ok(entries) = fs::read_dir(&path) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let Ok(text) = fs::read_to_string(entry.path()) else {
+                    continue;
+                };
+                let Ok(record) = serde_json::from_str::<serde_json::Value>(&text) else {
+                    continue;
+                };
+                if seen.iter().any(|(seen, _)| *seen == id) {
+                    continue;
+                }
+                seen.push((id.to_owned(), record.get("session").is_some()));
+            }
+        }
+        assert!(Instant::now() < deadline, "not every message was queued");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    for (id, has_session) in seen {
+        if id == "oc-maki000000000000" {
+            assert!(has_session, "a peer on this host can act on the session");
+        } else {
+            assert!(
+                !has_session,
+                "a session means nothing on another host, so it is not written"
+            );
+        }
+    }
+    drop(host);
+}
+
+/// The kind is one of two words, and a kind nobody knows is refused before
+/// anything is queued. Both halves refuse it with the same words.
+#[test]
+fn an_unknown_kind_is_refused() {
+    let (_temp, _state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+
+    let err = exec_tool(
+        &registry,
+        "peer_send",
+        json!({ "peer_id": "nosuch", "message": "hello", "kind": "note" }),
+    )
+    .unwrap_err();
+    assert!(
+        err.contains("kind must be observation or status"),
+        "got: {err}"
+    );
+    drop(host);
+}
+
 /// A topic is the subject of a message: it says what the message is about
 /// before the body, so a recipient can tell a box wide notice from a question
 /// without reading the body. It has to reach both readers, the step and the

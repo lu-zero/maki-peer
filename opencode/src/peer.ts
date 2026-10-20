@@ -287,6 +287,26 @@ export function newInstanceId(): string {
   return `${ORIGIN_HOST}-${randomBytes(8).toString("hex")}`
 }
 
+/**
+ * Send to every peer and count the messages that were really queued.
+ *
+ * A message that was rejected is not queued, so it is not counted, and the
+ * maki half does not count it either. The count is what the tool reports, so
+ * counting a rejection would tell the sender a message is on its way when it
+ * is not.
+ */
+export async function broadcastTo(
+  targets: Owner[],
+  send: (peer: Owner) => Promise<{ id: string; peer: string } | { error: string }>,
+): Promise<number> {
+  let queued = 0
+  for (const peer of targets) {
+    const result = await send(peer)
+    if (!("error" in result)) queued++
+  }
+  return queued
+}
+
 /** `name [id]`, the pair every peer-facing message quotes a peer as. */
 export function peerLabel(peer: Owner): string {
   return `${peer.name} [${peer.id}]`
