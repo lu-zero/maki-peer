@@ -2167,7 +2167,7 @@ checksum = "fc04a4c58212d57930a24bf47d3fa87485264a3a054e9c10e042eb373573ad3c"
 [[package]]
 name = "maki-agent"
 version = "0.6.3"
-source = "git+https://github.com/tontinton/maki?rev=6987079f8b4e13da0ae85566f26f2fb188cd5654#6987079f8b4e13da0ae85566f26f2fb188cd5654"
+source = "git+https://github.com/lu-zero/maki?rev=fbf41024#fbf4102449d2f7fecfdedd1e155e979eebd7360e"
 dependencies = [
  "arc-swap",
  "base64 0.23.1",
@@ -2207,7 +2207,7 @@ dependencies = [
 [[package]]
 name = "maki-config"
 version = "0.6.3"
-source = "git+https://github.com/tontinton/maki?rev=6987079f8b4e13da0ae85566f26f2fb188cd5654#6987079f8b4e13da0ae85566f26f2fb188cd5654"
+source = "git+https://github.com/lu-zero/maki?rev=fbf41024#fbf4102449d2f7fecfdedd1e155e979eebd7360e"
 dependencies = [
  "dotenvy",
  "globset",
@@ -2226,7 +2226,7 @@ dependencies = [
 [[package]]
 name = "maki-config-macro"
 version = "0.6.3"
-source = "git+https://github.com/tontinton/maki?rev=6987079f8b4e13da0ae85566f26f2fb188cd5654#6987079f8b4e13da0ae85566f26f2fb188cd5654"
+source = "git+https://github.com/lu-zero/maki?rev=fbf41024#fbf4102449d2f7fecfdedd1e155e979eebd7360e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2236,7 +2236,7 @@ dependencies = [
 [[package]]
 name = "maki-highlight"
 version = "0.6.3"
-source = "git+https://github.com/tontinton/maki?rev=6987079f8b4e13da0ae85566f26f2fb188cd5654#6987079f8b4e13da0ae85566f26f2fb188cd5654"
+source = "git+https://github.com/lu-zero/maki?rev=fbf41024#fbf4102449d2f7fecfdedd1e155e979eebd7360e"
 dependencies = [
  "flume",
  "serde_json",
@@ -2248,7 +2248,7 @@ dependencies = [
 [[package]]
 name = "maki-interpreter"
 version = "0.6.3"
-source = "git+https://github.com/tontinton/maki?rev=6987079f8b4e13da0ae85566f26f2fb188cd5654#6987079f8b4e13da0ae85566f26f2fb188cd5654"
+source = "git+https://github.com/lu-zero/maki?rev=fbf41024#fbf4102449d2f7fecfdedd1e155e979eebd7360e"
 dependencies = [
  "monty",
  "monty-types",
@@ -2260,7 +2260,7 @@ dependencies = [
 [[package]]
 name = "maki-lua"
 version = "0.6.3"
-source = "git+https://github.com/tontinton/maki?rev=6987079f8b4e13da0ae85566f26f2fb188cd5654#6987079f8b4e13da0ae85566f26f2fb188cd5654"
+source = "git+https://github.com/lu-zero/maki?rev=fbf41024#fbf4102449d2f7fecfdedd1e155e979eebd7360e"
 dependencies = [
  "arc-swap",
  "base64 0.23.1",
@@ -2341,7 +2341,7 @@ dependencies = [
 [[package]]
 name = "maki-lua-macro"
 version = "0.6.3"
-source = "git+https://github.com/tontinton/maki?rev=6987079f8b4e13da0ae85566f26f2fb188cd5654#6987079f8b4e13da0ae85566f26f2fb188cd5654"
+source = "git+https://github.com/lu-zero/maki?rev=fbf41024#fbf4102449d2f7fecfdedd1e155e979eebd7360e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2351,7 +2351,7 @@ dependencies = [
 [[package]]
 name = "maki-markdown"
 version = "0.6.3"
-source = "git+https://github.com/tontinton/maki?rev=6987079f8b4e13da0ae85566f26f2fb188cd5654#6987079f8b4e13da0ae85566f26f2fb188cd5654"
+source = "git+https://github.com/lu-zero/maki?rev=fbf41024#fbf4102449d2f7fecfdedd1e155e979eebd7360e"
 dependencies = [
  "maki-highlight",
  "unicode-segmentation",
@@ -2361,7 +2361,7 @@ dependencies = [
 [[package]]
 name = "maki-otel"
 version = "0.6.3"
-source = "git+https://github.com/tontinton/maki?rev=6987079f8b4e13da0ae85566f26f2fb188cd5654#6987079f8b4e13da0ae85566f26f2fb188cd5654"
+source = "git+https://github.com/lu-zero/maki?rev=fbf41024#fbf4102449d2f7fecfdedd1e155e979eebd7360e"
 dependencies = [
  "fastrand",
  "flate2",
@@ -2379,7 +2379,7 @@ dependencies = [
 [[package]]
 name = "maki-pack"
 version = "0.6.3"
-source = "git+https://github.com/tontinton/maki?rev=6987079f8b4e13da0ae85566f26f2fb188cd5654#6987079f8b4e13da0ae85566f26f2fb188cd5654"
+source = "git+https://github.com/lu-zero/maki?rev=fbf41024#fbf4102449d2f7fecfdedd1e155e979eebd7360e"
 dependencies = [
  "maki-storage",
  "serde",
@@ -2404,7 +2404,7 @@ dependencies = [
 [[package]]
 name = "maki-providers"
 version = "0.6.3"
-source = "git+https://github.com/tontinton/maki?rev=6987079f8b4e13da0ae85566f26f2fb188cd5654#6987079f8b4e13da0ae85566f26f2fb188cd5654"
+source = "git+https://github.com/lu-zero/maki?rev=fbf41024#fbf4102449d2f7fecfdedd1e155e979eebd7360e"
 dependencies = [
  "base64 0.23.1",
  "fastrand",
@@ -2436,7 +2436,7 @@ dependencies = [
 [[package]]
 name = "maki-storage"
 version = "0.6.3"
-source = "git+https://github.com/tontinton/maki?rev=6987079f8b4e13da0ae85566f26f2fb188cd5654#6987079f8b4e13da0ae85566f26f2fb188cd5654"
+source = "git+https://github.com/lu-zero/maki?rev=fbf41024#fbf4102449d2f7fecfdedd1e155e979eebd7360e"
 dependencies = [
  "bs58",
  "etcetera",
@@ -3545,9 +3545,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-ffi"
-version = "0.15.5"
+version = "0.15.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4146b98d9eb08a4700105c4d03c70a0969e637715e77be4a4dd43bf5fba7e0f0"
+checksum = "3aecdfbab945bcfa0370aad902c225448e0c7c002f49304d8bd1a0ad7de6439d"
 dependencies = [
  "libc",
  "log",
@@ -3607,9 +3607,9 @@ checksum = "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -4915,9 +4915,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
 ]

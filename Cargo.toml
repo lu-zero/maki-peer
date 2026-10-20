@@ -7,9 +7,9 @@ publish = false
 
 [dev-dependencies]
 flume = "0.12"
-maki-agent = { git = "https://github.com/tontinton/maki", rev = "6987079f8b4e13da0ae85566f26f2fb188cd5654" }
-maki-lua = { git = "https://github.com/tontinton/maki", rev = "6987079f8b4e13da0ae85566f26f2fb188cd5654" }
-maki-storage = { git = "https://github.com/tontinton/maki", rev = "6987079f8b4e13da0ae85566f26f2fb188cd5654" }
+maki-agent = { git = "https://github.com/lu-zero/maki", rev = "fbf41024" }
+maki-lua = { git = "https://github.com/lu-zero/maki", rev = "fbf41024" }
+maki-storage = { git = "https://github.com/lu-zero/maki", rev = "fbf41024" }
 serde_json = "1"
 smol = "2"
 tempfile = "3"

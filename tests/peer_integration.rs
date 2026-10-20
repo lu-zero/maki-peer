@@ -8,7 +8,9 @@ mod common;
 
 use maki_agent::SessionMailbox;
 use maki_agent::tools::ToolRegistry;
-use maki_lua::{ModelRequest, PluginHost, PluginPermissions, SessionRequest, UiAction, UiReply};
+use maki_lua::{
+    ChatItemStatus, ModelRequest, PluginHost, PluginPermissions, SessionRequest, UiAction, UiReply,
+};
 use maki_storage::id::{MakiId, SessionRef};
 use serde_json::json;
 
@@ -207,6 +209,49 @@ fn wait_for_mailbox(mailbox: &SessionMailbox) -> String {
                 .to_owned();
         }
         assert!(Instant::now() < deadline, "peer message did not arrive");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// The done step of a delivered message, skipping the running one that opens
+/// it. The detail carries the message, the label carries the sender.
+fn wait_for_step(forward: &mpsc::Receiver<UiAction>) -> String {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let action = forward
+            .recv_timeout(Duration::from_secs(5))
+            .expect("an arriving message should show a step");
+        let UiAction::ChatItem(item) = action else {
+            assert!(
+                Instant::now() < deadline,
+                "no step arrived for the delivered message"
+            );
+            continue;
+        };
+        if item.status == ChatItemStatus::Running {
+            continue;
+        }
+        assert_eq!(item.status, ChatItemStatus::Done);
+        return item.detail.unwrap_or_default();
+    }
+}
+
+/// Wait for the record to publish `expected` as its directory. The refresh
+/// that does it is also what tells the plugin which session is focused.
+fn wait_for_cwd(state: &Path, id: &str, expected: &str) {
+    let path = state.join("peers/owners").join(format!("{id}.json"));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Ok(text) = fs::read_to_string(&path)
+            && let Ok(record) = serde_json::from_str::<serde_json::Value>(&text)
+            && record["cwd"] == expected
+        {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "record never gained the session directory"
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
 }
@@ -1138,6 +1183,145 @@ fn a_title_of_only_whitespace_is_not_published() {
 /// `SessionStatusChanged` handler flushes on its own and would keep the record
 /// moving with the poll dead. A first version of this test watched `last_seen`
 /// and passed against exactly the shape it was meant to reject.
+/// A peer message has to be visible without opening the session, since the
+/// session it lands in may be a tab the user is not looking at. The step is
+/// the only signal, so the sender's short name has to be on it and the
+/// message has to come with it.
+#[test]
+fn an_arriving_message_shows_a_step() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    let live = MakiId::generate();
+    let _mailbox = SessionMailbox::register(live);
+    host.event_handle().fire_autocmd(
+        "SessionStatusChanged",
+        json!({ "session_id": live.to_string(), "status": "idle" }),
+    );
+
+    write_inbound(
+        &state,
+        &id,
+        inbound(
+            &id,
+            "a note from the other side",
+            Some(&live.to_string()),
+            Some("maki"),
+        ),
+    );
+
+    let detail = wait_for_step(&forward);
+    assert!(
+        detail.contains("a note from the other side"),
+        "got: {detail}"
+    );
+    drop(host);
+}
+
+/// The label is what the host paints as the item kind, so the sender's short
+/// name goes there rather than into the text.
+#[test]
+fn a_step_is_labelled_with_the_sender() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    let live = MakiId::generate();
+    let _mailbox = SessionMailbox::register(live);
+    host.event_handle().fire_autocmd(
+        "SessionStatusChanged",
+        json!({ "session_id": live.to_string(), "status": "idle" }),
+    );
+
+    write_inbound(
+        &state,
+        &id,
+        inbound(
+            &id,
+            "a note from the other side",
+            Some(&live.to_string()),
+            Some("maki"),
+        ),
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let action = forward
+            .recv_timeout(Duration::from_secs(5))
+            .expect("an arriving message should show a step");
+        let UiAction::ChatItem(item) = action else {
+            assert!(
+                Instant::now() < deadline,
+                "no step arrived for the delivered message"
+            );
+            continue;
+        };
+        if item.status == ChatItemStatus::Running {
+            continue;
+        }
+        assert_eq!(&*item.label, "remote-host", "the step names the sender");
+        break;
+    }
+
+    drop(host);
+}
+
+/// A step cannot name a session, so it lands in the transcript the user is
+/// looking at. When the message went to a different session, the step has to
+/// say so, or the reader looks for the message in the wrong transcript.
+#[test]
+fn a_step_for_another_session_says_so() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    // The refresh is what tells the plugin which session is focused, and it
+    // also publishes the session's own directory, so that directory landing is
+    // what proves the refresh ran.
+    wait_for_cwd(&state, &id, SESSION_CWD);
+
+    let live = MakiId::generate();
+    let _mailbox = SessionMailbox::register(live);
+    host.event_handle().fire_autocmd(
+        "SessionStatusChanged",
+        json!({ "session_id": live.to_string(), "status": "idle" }),
+    );
+
+    write_inbound(
+        &state,
+        &id,
+        inbound(
+            &id,
+            "for another tab",
+            Some(&live.to_string()),
+            Some("maki"),
+        ),
+    );
+
+    let detail = wait_for_step(&forward);
+    assert!(
+        detail.ends_with("(another session)"),
+        "a step for another session must say so, got: {detail}"
+    );
+    drop(host);
+}
+
 #[test]
 fn a_busy_ui_does_not_stop_delivery() {
     let (_temp, state) = common::isolated_state();
