@@ -272,13 +272,13 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
       editor.namespace({ name: TOOL_NAMESPACE, description: "Local host-to-host observation messaging" })
       editor.add({
         name: "list",
-        description: "List local Maki and OpenCode instances registered on this machine.",
+        description: "List every peer on this machine, Maki and OpenCode alike, with its directory, title and status. Run this before a broadcast, so you know who would receive it.",
         input: { type: "object", properties: {}, additionalProperties: false },
         execute: async (_input, context) => ({ content: await listOutput(context.sessionID) }),
       })
       editor.add({
         name: "send",
-        description: "Send an observation or status to another local Maki or OpenCode instance.",
+        description: "Send an observation or status to one named peer, on either host, and to that peer only. This is the default way to reach another agent: prefer it to a broadcast unless you really do mean everyone.",
         input: {
           type: "object",
           properties: {
@@ -304,7 +304,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
       })
       editor.add({
         name: "broadcast",
-        description: "Send one observation to every active local Maki and OpenCode instance.",
+        description: "Send one observation to EVERY peer on this machine, Maki and OpenCode alike, including sessions belonging to other work and to other people. Each recipient gets it as a message in their own session, so it lands in context you do not control. Use peer_send to one named peer instead, unless a broadcast is what you actually mean.",
         input: {
           type: "object",
           properties: {

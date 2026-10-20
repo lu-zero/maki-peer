@@ -81,10 +81,18 @@ Tools:
 
 - `peer_list` lists every live local session, with its model, status, and abbreviated id.
   It also lists OpenCode instances once that plugin is installed.
-- `peer_send` sends an observation or status to one peer.
+- `peer_send` sends an observation or status to one named peer, on either host.
 - `peer_broadcast` sends one observation to every active peer.
 - `peer_spawn` starts an independent Maki process in a detached `tmux` session,
   optionally on a chosen model.
+
+A broadcast reaches every peer on the machine, on both hosts, including
+sessions belonging to other work and to other people, and each recipient gets
+it as a message in their own session. There is no way to undo that and no
+per-recipient opt out, so a broadcast is a thing to do deliberately and not by
+accident. `peer_send` to one named peer is the default way to reach another
+agent. The tool descriptions say the same thing, because that is where an
+agent reads it.
 
 The OpenCode side registers the same tool names under the `peer` namespace, so
 a model that has learned one set uses the other the same way. The `/peer`

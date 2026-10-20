@@ -1127,7 +1127,7 @@ maki.api.register_prompt_hint({
 maki.api.register_tool({
   name = "peer_list",
   kind = "other",
-  description = "List Maki instances registered on this local machine.",
+  description = "List every peer on this machine, Maki and OpenCode alike, with its directory, title and status. Run this before a broadcast, so you know who would receive it.",
   schema = {
     type = "object",
     properties = {},
@@ -1148,7 +1148,7 @@ maki.api.register_tool({
 maki.api.register_tool({
   name = "peer_send",
   kind = "other",
-  description = "Send an observation or status to another Maki instance on this local machine.",
+  description = "Send an observation or status to one named peer, on either host, and to that peer only. This is the default way to reach another agent: prefer it to a broadcast unless you really do mean everyone.",
   schema = {
     type = "object",
     properties = {
@@ -1177,7 +1177,7 @@ maki.api.register_tool({
 maki.api.register_tool({
   name = "peer_broadcast",
   kind = "other",
-  description = "Send an observation to every active local Maki instance.",
+  description = "Send an observation to EVERY peer on this machine, Maki and OpenCode alike, including sessions belonging to other work and to other people. Each recipient gets it as a message in their own session, so it lands in context you do not control. Use peer_send to one named peer instead, unless a broadcast is what you actually mean.",
   schema = {
     type = "object",
     properties = {
@@ -1203,7 +1203,7 @@ maki.api.register_tool({
 maki.api.register_tool({
   name = "peer_spawn",
   kind = "execute",
-  description = "Spawn an independent Maki peer in a detached tmux session, optionally on a chosen model.",
+  description = "Spawn an independent Maki peer in a detached tmux session, optionally on a chosen model. The new peer joins the peer list, so it receives broadcasts as well, and it can broadcast to the others.",
   schema = {
     type = "object",
     properties = {
@@ -1228,7 +1228,7 @@ maki.api.register_tool({
 
 maki.api.register_command({
   name = "/peer",
-  description = "List local Maki peers or manage peer messages",
+  description = "List local Maki and OpenCode peers, or manage peer messages. A broadcast from here reaches every peer on the machine, so prefer send to one named peer.",
   nargs = "*",
   handler = function(opts)
     local args = opts.args or ""
