@@ -12,6 +12,13 @@ This repository holds two plugins that share one spool protocol:
 Both halves write presence records and message files into the same per-user
 directory, so a message from one lands in a session of the other.
 
+The two halves are meant to read the same. They register the same tool names,
+and the descriptions, the message format and the text sanitising are meant to be
+identical, because a model that has learned one set uses the other the same way
+and an agent should not be able to tell which host it is talking to. A test
+compares the descriptions across the two files, so a change to one half alone
+fails the build.
+
 ## Install
 
 ### Maki
@@ -243,3 +250,8 @@ window passes.
 On the OpenCode side a session becomes a peer once the plugin observes an
 event for it, because OpenCode offers plugins no way to list existing
 sessions. `opencode/README.md` has the details.
+
+One difference between the halves is known and not yet fixed. The Maki half
+strips control characters by byte, so it keeps U+0080 to U+009F, and the
+OpenCode half strips them by code point, so it does not. A title or a topic
+carrying one of those is stored differently depending on which half wrote it.
