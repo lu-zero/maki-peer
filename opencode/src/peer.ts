@@ -3,6 +3,7 @@ import { basename } from "node:path"
 
 import {
   GC_MARK_AFTER_SECONDS,
+  MAX_TOPIC_RUNES,
   MESSAGE_TTL_SECONDS,
   MAX_LIST_TITLE_RUNES,
   MIN_ABBREV_CHARS,
@@ -296,8 +297,19 @@ export function peerLabel(peer: Owner): string {
  * reader uses, id after it because that is what they copy back into a send.
  * The other host prints the same line, so both halves stay readable together.
  */
-export function deliveryText(message: { from_name: string; from: string; body: string }): string {
-  return `[peer ${message.from_name} ${message.from}] ${message.body}`
+/**
+ * The topic of a message, sanitised on the way out as well as on the way in,
+ * because the other half might be an older one that wrote a raw topic. The
+ * rule is the title's rule with a smaller cap, since a topic shares a line
+ * with the body.
+ */
+export function topicOf(value: unknown): string | undefined {
+  return titleOf(value, MAX_TOPIC_RUNES)
+}
+
+export function deliveryText(message: { from_name: string; from: string; body: string; topic?: string }): string {
+  const topic = topicOf(message.topic)
+  return `[peer ${message.from_name} ${message.from}] ${topic ? `${topic}: ` : ""}${message.body}`
 }
 
 export type MarkEntry = { id: string; last_seen: number }
@@ -612,6 +624,7 @@ export function messageRecord(input: {
   to: string
   body: string
   kind: "observation" | "status"
+  topic?: string
   session?: string
   ttlSeconds?: number
 }): Record<string, unknown> {
@@ -625,6 +638,9 @@ export function messageRecord(input: {
     to: input.to,
     kind: input.kind,
     body: input.body,
+    // The topic is optional, and it is sanitised here so the record holds
+    // something a reader can print. A message without one is still a message.
+    ...(topicOf(input.topic) ? { topic: topicOf(input.topic) } : {}),
     ...(input.session ? { session: input.session } : {}),
     origin: { host: ORIGIN_HOST },
     created: now,

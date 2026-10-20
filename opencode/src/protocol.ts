@@ -38,6 +38,7 @@ export const CLAIM_TIMEOUT_SECONDS = 60
 export const NAME_HEX_WIDTH = 8
 /** A title is a label, not a paragraph. */
 export const MAX_TITLE_RUNES = 64
+export const MAX_TOPIC_RUNES = 48
 
 const ID_PATTERN = /^[\w-]+$/
 const MAX_ID_LENGTH = 128
@@ -79,6 +80,7 @@ export type PeerMessage = {
   to: string
   kind: "observation" | "status"
   body: string
+  topic?: string
   session?: string
   origin?: { host?: unknown }
   created: number
@@ -126,12 +128,15 @@ export function parseOwner(value: unknown): Owner | undefined {
  * single space, which is also what a reader wants, and the cap counts runes so
  * it cannot split a code point in half.
  */
-export function titleOf(value: unknown): string | undefined {
+export function titleOf(value: unknown, cap: number = MAX_TITLE_RUNES): string | undefined {
   if (typeof value !== "string") return undefined
   const flat = value.replace(/\p{Cc}/gu, " ").replace(/\s+/gu, " ").trim()
   if (flat === "") return undefined
   const runes = [...flat]
-  return runes.length > MAX_TITLE_RUNES ? runes.slice(0, MAX_TITLE_RUNES).join("").trimEnd() : flat
+  // No trailing trim after the cut. The maki half cuts at the same rune
+  // boundary and keeps a space that lands on the boundary, and the two halves
+  // have to print the same bytes.
+  return runes.length > cap ? runes.slice(0, cap).join("") : flat
 }
 
 /**
@@ -164,6 +169,7 @@ export function parseMessage(value: unknown, to: string): PeerMessage | undefine
   if (typeof value.body !== "string" || value.body.length > MAX_BODY_BYTES) return undefined
   if (value.kind !== "observation" && value.kind !== "status") return undefined
   if (value.session !== undefined && typeof value.session !== "string") return undefined
+  if (value.topic !== undefined && typeof value.topic !== "string") return undefined
   const created = finite(value.created)
   const expires = finite(value.expires)
   if (created === undefined || expires === undefined) return undefined
@@ -175,6 +181,7 @@ export function parseMessage(value: unknown, to: string): PeerMessage | undefine
     to,
     kind: value.kind,
     body: value.body,
+    ...(typeof value.topic === "string" ? { topic: value.topic } : {}),
     ...(typeof value.session === "string" ? { session: value.session } : {}),
     ...(isRecord(value.origin) ? { origin: { host: value.origin.host } } : {}),
     created,

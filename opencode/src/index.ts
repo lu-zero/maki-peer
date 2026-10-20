@@ -41,13 +41,14 @@ type Options = {
 }
 
 /** Tool executors receive `unknown`, so narrow the fields we rely on. */
-function readArgs(input: unknown): { peer_id?: string; message?: string; session?: string; kind?: string; same_dir_only?: boolean } {
+function readArgs(input: unknown): { peer_id?: string; message?: string; topic?: string; session?: string; kind?: string; same_dir_only?: boolean } {
   if (typeof input !== "object" || input === null) return {}
   const record = input as Record<string, unknown>
   const text = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value : undefined)
   return {
     peer_id: text(record.peer_id),
     message: text(record.message),
+    topic: text(record.topic),
     session: text(record.session),
     kind: text(record.kind),
     same_dir_only: record.same_dir_only === true,
@@ -244,6 +245,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
       kind: "observation" | "status",
       fromSessionID: string,
       session?: string,
+      topic?: string,
     ): Promise<{ id: string; peer: string } | { error: string }> => {
       const encoded = encodeBody(body)
       if (encoded === undefined) return { error: "message body is blank or too large" }
@@ -262,6 +264,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
           to: target.id,
           body: encoded,
           kind,
+          ...(topic ? { topic } : {}),
           ...(sameHost && session ? { session } : {}),
         }),
       )
@@ -284,6 +287,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
           properties: {
             peer_id: { type: "string", description: "Target peer id or name, as printed by peer_list" },
             message: { type: "string", description: "Observation to deliver" },
+            topic: { type: "string", description: "Short subject of the message, shown before the body" },
             session: { type: "string", description: "Optional session id on the receiving host" },
             kind: { type: "string", enum: ["observation", "status"] },
           },
@@ -297,7 +301,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
           const kind = args.kind === "status" ? "status" : "observation"
           const resolved = resolvePeer(await registry.records(), args.peer_id, undefined, ownID(context.sessionID))
           if ("error" in resolved) throw new Error(resolved.error)
-          const result = await queue(resolved.peer, args.message, kind, context.sessionID, args.session)
+          const result = await queue(resolved.peer, args.message, kind, context.sessionID, args.session, args.topic)
           if ("error" in result) throw new Error(result.error)
           return { content: `Queued peer message ${result.id} for ${result.peer}.` }
         },
@@ -309,6 +313,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
           type: "object",
           properties: {
             message: { type: "string", description: "Observation to deliver" },
+            topic: { type: "string", description: "Short subject of the message, shown before the body" },
             session: { type: "string", description: "Optional session id on the receiving host" },
             kind: { type: "string", enum: ["observation", "status"] },
             same_dir_only: {
@@ -327,7 +332,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
           const targets = await broadcastTargets(context.sessionID, sameDirOnly)
           let queued = 0
           for (const peer of targets) {
-            const result = await queue(peer, args.message, kind, context.sessionID, args.session)
+            const result = await queue(peer, args.message, kind, context.sessionID, args.session, args.topic)
             if (!("error" in result)) queued++
           }
           if (queued === 0 && sameDirOnly) {

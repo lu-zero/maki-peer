@@ -9,6 +9,7 @@ import {
   applyEventAsync,
   deliveryText,
   formatPeerLines,
+  messageRecord,
   nameFromPeerID,
   peerIdFor,
   statusFor,
@@ -759,6 +760,96 @@ test("gives a receiving session the sender name before the id, one space apart",
   expect(deliveryText({ from_name: "opencode:3H0d7w", from: "oc-072f2841ee0e9743", body: "ping" })).toBe(
     "[peer opencode:3H0d7w oc-072f2841ee0e9743] ping",
   )
+})
+
+test("a topic leads the body, and a message without one is unchanged", () => {
+  expect(
+    deliveryText({
+      from_name: "opencode-072f2841",
+      from: "oc-072f2841ee0e9743",
+      topic: "box state",
+      body: "the sweep finishes at about 22:52",
+    }),
+  ).toBe("[peer opencode-072f2841 oc-072f2841ee0e9743] box state: the sweep finishes at about 22:52")
+  expect(
+    deliveryText({ from_name: "opencode-072f2841", from: "oc-072f2841ee0e9743", body: "ping" }),
+  ).toBe("[peer opencode-072f2841 oc-072f2841ee0e9743] ping")
+})
+
+test("a topic is sanitised on the way out, because the other half may be older", () => {
+  expect(
+    deliveryText({
+      from_name: "opencode-072f2841",
+      from: "oc-072f2841ee0e9743",
+      topic: "  box\u0001 state   here  ",
+      body: "ping",
+    }),
+  ).toBe("[peer opencode-072f2841 oc-072f2841ee0e9743] box state here: ping")
+  // A topic that is only whitespace is no topic at all.
+  expect(
+    deliveryText({
+      from_name: "opencode-072f2841",
+      from: "oc-072f2841ee0e9743",
+      topic: "   \u0001  ",
+      body: "ping",
+    }),
+  ).toBe("[peer opencode-072f2841 oc-072f2841ee0e9743] ping")
+})
+
+test("a cut that lands on a space keeps it, so both halves print the same bytes", () => {
+  // The maki half cuts at the rune boundary and keeps a space that lands on
+  // it. The opencode half used to trim the end after the cut, which made the
+  // two halves differ by one byte.
+  const topic = "x".repeat(47) + " more text"
+  const printed = deliveryText({
+    from_name: "opencode-072f2841",
+    from: "oc-072f2841ee0e9743",
+    topic,
+    body: "ping",
+  })
+  expect(printed).toBe(`[peer opencode-072f2841 oc-072f2841ee0e9743] ${"x".repeat(47)} : ping`)
+})
+
+test("a topic is capped at 48 runes, on a rune boundary", () => {
+  const topic = "\u{2014}".repeat(60)
+  const printed = deliveryText({
+    from_name: "opencode-072f2841",
+    from: "oc-072f2841ee0e9743",
+    topic,
+    body: "ping",
+  })
+  expect(printed).toBe(`[peer opencode-072f2841 oc-072f2841ee0e9743] ${"\u{2014}".repeat(48)}: ping`)
+  // The topic is 48 runes, and the cut did not split one: every em dash in the
+  // printed line is whole, and there are exactly 48 of them.
+  expect([...printed].filter((c) => c === "\u{2014}").length).toBe(48)
+})
+
+test("the topic survives a round trip through the record", () => {
+  const record = messageRecord({
+    id: "m1",
+    from: "oc-072f2841ee0e9743",
+    fromName: "opencode-072f2841",
+    to: "oc-peer",
+    body: "ping",
+    kind: "observation",
+    topic: "box state",
+  })
+  expect(record.topic).toBe("box state")
+  const parsed = parseMessage(record, "oc-peer")
+  expect(parsed?.topic).toBe("box state")
+})
+
+test("a message without a topic has no topic field at all", () => {
+  const record = messageRecord({
+    id: "m1",
+    from: "oc-072f2841ee0e9743",
+    fromName: "opencode-072f2841",
+    to: "oc-peer",
+    body: "ping",
+    kind: "observation",
+  })
+  expect("topic" in record).toBe(false)
+  expect(parseMessage(record, "oc-peer")?.topic).toBe(undefined)
 })
 
 describe("mark and sweep", () => {
