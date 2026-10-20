@@ -154,6 +154,13 @@ delivers it into the session the record belongs to. That rule is what lets
 another host share the same spool without knowing anything about maki
 sessions.
 
+A message may also carry a topic: a short subject that says what the message
+is about, so a recipient can tell a box wide notice from a question without
+reading the body. It is optional, and a message without one reads the way it
+always did. It is free text written by another agent, so it is sanitised like
+a title and capped at forty eight runes. Both halves print it in front of the
+body, in the transcript step and in the text the session receives.
+
 Each peer names itself from its own peer id, `maki-Cg68nHqT` and
 `opencode-072f2841`, so a name is stable and needs no configuration. A maki peer
 id is the session's storage id, so the name is the first eight characters of

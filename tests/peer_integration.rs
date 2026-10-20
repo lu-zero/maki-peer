@@ -293,6 +293,20 @@ fn inbound(to: &str, body: &str, session: Option<&str>, origin: Option<&str>) ->
     message
 }
 
+/// The same message with a topic, which is what a sender writes when it says
+/// what the message is about.
+fn inbound_with_topic(
+    to: &str,
+    body: &str,
+    topic: &str,
+    session: Option<&str>,
+    origin: Option<&str>,
+) -> serde_json::Value {
+    let mut message = inbound(to, body, session, origin);
+    message["topic"] = json!(topic);
+    message
+}
+
 #[test]
 fn peer_command_opens_a_list_window() {
     let (_temp, _state) = common::isolated_state();
@@ -1274,6 +1288,129 @@ fn a_step_is_labelled_with_the_sender() {
         break;
     }
 
+    drop(host);
+}
+
+/// A topic is the subject of a message: it says what the message is about
+/// before the body, so a recipient can tell a box wide notice from a question
+/// without reading the body. It has to reach both readers, the step and the
+/// session.
+#[test]
+fn a_topic_leads_the_message() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    let live = MakiId::generate();
+    let mailbox = SessionMailbox::register(live);
+    host.event_handle().fire_autocmd(
+        "SessionStatusChanged",
+        json!({ "session_id": live.to_string(), "status": "idle" }),
+    );
+
+    write_inbound(
+        &state,
+        &id,
+        inbound_with_topic(
+            &id,
+            "node 3 is taken until 22:55",
+            "box state",
+            Some(&live.to_string()),
+            Some("maki"),
+        ),
+    );
+
+    let detail = wait_for_step(&forward);
+    assert!(
+        detail.starts_with("box state: node 3 is taken"),
+        "the topic leads the step, got: {detail}"
+    );
+
+    let delivered = wait_for_mailbox(&mailbox);
+    assert!(
+        delivered.contains("box state: node 3 is taken"),
+        "the topic leads the delivered text, got: {delivered}"
+    );
+    drop(host);
+}
+
+/// The topic is free text from another agent, so it is sanitised on the way
+/// in: control characters go, whitespace collapses to one space, and the cap
+/// lands on a rune boundary so a code point is never split.
+#[test]
+fn a_topic_is_sanitised_on_the_way_in() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+
+    write_owner(
+        &state,
+        &owner_record("oc-abc123def4567890", "opencode-072f28", 1, None, None),
+    );
+    exec_tool(
+        &registry,
+        "peer_send",
+        json!({
+            "peer_id": "oc-abc123",
+            "message": "body",
+            "topic": "  box\tstate\nnow  ",
+        }),
+    )
+    .unwrap();
+
+    let queued_dir = state.join("peers/inboxes").join("oc-abc123def4567890");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let queued = fs::read_dir(&queued_dir)
+            .map(|mut entries| entries.next().map(|entry| entry.unwrap().path()))
+            .unwrap_or(None);
+        if let Some(path) = queued
+            && let Ok(text) = fs::read_to_string(&path)
+            && let Ok(record) = serde_json::from_str::<serde_json::Value>(&text)
+        {
+            assert_eq!(record["topic"], "box state now", "got: {record}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "no queued message appeared");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    drop(host);
+}
+
+/// A message without a topic reads the way it always did, so a topic is
+/// optional and not a new requirement.
+#[test]
+fn a_message_without_a_topic_is_unchanged() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    let live = MakiId::generate();
+    let _mailbox = SessionMailbox::register(live);
+    host.event_handle().fire_autocmd(
+        "SessionStatusChanged",
+        json!({ "session_id": live.to_string(), "status": "idle" }),
+    );
+
+    write_inbound(
+        &state,
+        &id,
+        inbound(&id, "plain body", Some(&live.to_string()), Some("maki")),
+    );
+
+    let detail = wait_for_step(&forward);
+    assert_eq!(detail, "plain body", "got: {detail}");
     drop(host);
 }
 

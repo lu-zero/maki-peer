@@ -4,7 +4,7 @@ local MAX_INBOX = 100
 local MAX_BODY_BYTES = 262144
 local MAX_RECORD_BYTES = MAX_BODY_BYTES + 4096
 local NAME_HEX_WIDTH = 8
-local MAX_NOTICE_RUNES = 100
+local MAX_NOTICE_RUNES = 120
 local OWNER_STALE_SECONDS = 15
 local MESSAGE_TTL_SECONDS = 300
 local PROTOCOL_VERSION = 1
@@ -155,6 +155,7 @@ end
 
 local MAX_TITLE_RUNES = 64
 local MAX_LIST_TITLE_RUNES = 24
+local MAX_TOPIC_RUNES = 48
 local MIN_ABBREV_CHARS = 4
 
 -- Derived from the peer id, not the title: titles are free text, mutable and
@@ -165,22 +166,28 @@ local function peer_name(id)
   return "maki-" .. rest:sub(1, NAME_HEX_WIDTH)
 end
 
--- A title is free text written by another agent, so it is treated as data and
--- never as markup: control characters go, whitespace collapses to one space,
--- and the cap lands on a rune boundary so a code point is never split.
-local function sanitize_title(title)
-  if type(title) ~= "string" then
+-- Free text written by another agent is treated as data and never as markup:
+-- control characters go, whitespace collapses to one space, and the cap lands
+-- on a rune boundary so a code point is never split. A title and a topic are
+-- both that, and the only difference between them is how much of them there
+-- is room for.
+local function sanitize_text(text, cap)
+  if type(text) ~= "string" then
     return nil
   end
-  local text = title:gsub("%c", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
-  if text == "" then
+  local flat = text:gsub("%c", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
+  if flat == "" then
     return nil
   end
-  local cut = utf8.offset(text, MAX_TITLE_RUNES + 1)
+  local cut = utf8.offset(flat, cap + 1)
   if cut then
-    text = text:sub(1, cut - 1)
+    flat = flat:sub(1, cut - 1)
   end
-  return text
+  return flat
+end
+
+local function sanitize_title(title)
+  return sanitize_text(title, MAX_TITLE_RUNES)
 end
 
 local function register_session(session_id)
@@ -600,6 +607,12 @@ local function queue_message(owner, target, body, opts)
     created = os.time(),
     expires = os.time() + ttl,
   }
+  -- The topic is optional, and it is sanitised here so the record holds
+  -- something a reader can print. A message without one is still a message.
+  local topic = sanitize_text(opts.topic, MAX_TOPIC_RUNES)
+  if topic then
+    message.topic = topic
+  end
   local written, write_err = write_json(path, message)
   if not written then
     return nil, write_err
@@ -652,19 +665,38 @@ local function valid_message(message, owner_id)
     and type(message.body) == "string"
     and type(message.id) == "string"
     and (message.session == nil or type(message.session) == "string")
+    and (message.topic == nil or type(message.topic) == "string")
+end
+
+-- A topic is the subject of the message: a short label that says what the
+-- message is about, so a recipient can tell a box wide notice from a question
+-- without reading the body. It is free text from another agent, so it is
+-- sanitised like a title, and it is optional: a message without one is still
+-- a message and reads the way it always did.
+local function topic_of(message)
+  return sanitize_text(message.topic, MAX_TOPIC_RUNES)
+end
+
+-- The body with its topic in front of it, the way both hosts print it.
+local function message_body(message)
+  local topic = topic_of(message)
+  if topic then
+    return topic .. ": " .. message.body
+  end
+  return message.body
 end
 
 -- One string, mirrored byte for byte by the opencode half, so a reader can map
 -- the prefix back to a name without consulting peer_list.
 local function delivery_text(message)
-  return string.format("[peer %s %s] %s", message.from_name, message.from, message.body)
+  return string.format("[peer %s %s] %s", message.from_name, message.from, message_body(message))
 end
 
 -- A step is one line, so the body is flattened to one line and cut. The whole
 -- message stays in the session, where the model reads it, so the step only has
 -- to say what about.
 local function body_line(message)
-  local flat = message.body:gsub("%c", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
+  local flat = message_body(message):gsub("%c", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
   if flat == "" then
     flat = "(no text)"
   end
@@ -1158,6 +1190,7 @@ maki.api.register_tool({
         required = true,
       },
       message = { type = "string", description = "Observation to deliver", required = true },
+      topic = { type = "string", description = "Short subject of the message, shown before the body" },
       session = { type = "string", description = "Optional target session id" },
       kind = { type = "string", description = "observation or status" },
     },
@@ -1166,6 +1199,7 @@ maki.api.register_tool({
     local receipt, err = send_message(input.peer_id, input.message, {
       session = input.session,
       kind = input.kind,
+      topic = input.topic,
     }, ctx and ctx:session_id())
     if not receipt then
       return { llm_output = err or "peer message was rejected", is_error = true }
@@ -1182,6 +1216,7 @@ maki.api.register_tool({
     type = "object",
     properties = {
       message = { type = "string", description = "Observation to deliver", required = true },
+      topic = { type = "string", description = "Short subject of the message, shown before the body" },
       session = { type = "string", description = "Optional target session id" },
       kind = { type = "string", description = "observation or status" },
       same_dir_only = { type = "boolean", description = "Only peers reporting the same working directory" },
@@ -1191,6 +1226,7 @@ maki.api.register_tool({
     local receipts, err = broadcast_message(input.message, {
       session = input.session,
       kind = input.kind,
+      topic = input.topic,
       same_dir_only = input.same_dir_only,
     }, ctx and ctx:session_id())
     if not receipts then
