@@ -278,7 +278,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
       })
       editor.add({
         name: "send",
-        description: "Send an observation or status to one named peer, on either host, and to that peer only. This is the default way to reach another agent: prefer it to a broadcast unless you really do mean everyone.",
+        description: "Send an observation or status to one named peer, on either host, and to that peer only. This is the default way to reach another agent: prefer it to a broadcast unless you really do mean everyone. Two agents working closely together use this.",
         input: {
           type: "object",
           properties: {
@@ -304,7 +304,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
       })
       editor.add({
         name: "broadcast",
-        description: "Send one observation to EVERY peer on this machine, Maki and OpenCode alike, including sessions belonging to other work and to other people. Each recipient gets it as a message in their own session, so it lands in context you do not control. Use peer_send to one named peer instead, unless a broadcast is what you actually mean.",
+        description: "Send an observation to EVERY peer on this machine, Maki and OpenCode alike, including sessions belonging to other work and to other people. Each recipient gets it as a message in their own session, so it lands in context you do not control. Broadcast when the whole machine should know, such as a system wide action or a change other people depend on, and use same_dir_only to reach the team working in one directory. Two agents working closely together should use peer_send.",
         input: {
           type: "object",
           properties: {

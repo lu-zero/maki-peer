@@ -86,13 +86,13 @@ Tools:
 - `peer_spawn` starts an independent Maki process in a detached `tmux` session,
   optionally on a chosen model.
 
-A broadcast reaches every peer on the machine, on both hosts, including
-sessions belonging to other work and to other people, and each recipient gets
-it as a message in their own session. There is no way to undo that and no
-per-recipient opt out, so a broadcast is a thing to do deliberately and not by
-accident. `peer_send` to one named peer is the default way to reach another
-agent. The tool descriptions say the same thing, because that is where an
-agent reads it.
+A broadcast is for something the whole machine should know, such as a system
+wide action or a change other people depend on. `peer_broadcast` with
+`same_dir_only` reaches the team working in one directory. Two agents
+cooperating closely use `peer_send`, which reaches one peer and only that
+peer. There is no way to undo a broadcast and no per-recipient opt out, which
+is why the choice matters. The tool descriptions say the same thing, because
+that is where an agent reads it.
 
 The OpenCode side registers the same tool names under the `peer` namespace, so
 a model that has learned one set uses the other the same way. The `/peer`
