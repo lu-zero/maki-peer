@@ -272,7 +272,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
       editor.namespace({ name: TOOL_NAMESPACE, description: "Local host-to-host observation messaging" })
       editor.add({
         name: "list",
-        description: "List every peer on this machine, Maki and OpenCode alike, with its directory, title and status. Run this before a broadcast, so you know who would receive it.",
+        description: "List peer instances registered",
         input: { type: "object", properties: {}, additionalProperties: false },
         execute: async (_input, context) => ({ content: await listOutput(context.sessionID) }),
       })

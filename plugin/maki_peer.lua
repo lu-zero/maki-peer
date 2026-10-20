@@ -1127,7 +1127,7 @@ maki.api.register_prompt_hint({
 maki.api.register_tool({
   name = "peer_list",
   kind = "other",
-  description = "List every peer on this machine, Maki and OpenCode alike, with its directory, title and status. Run this before a broadcast, so you know who would receive it.",
+  description = "List peer instances registered",
   schema = {
     type = "object",
     properties = {},
