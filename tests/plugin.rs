@@ -135,6 +135,49 @@ fn peer_spawn_valid_model_passes_validation() {
 /// shadowing declaration inside a nested block, and it says nothing about a
 /// `local NAME = function` form the plugin does not use. Strings are not
 /// stripped, so a function name inside one would be reported.
+/// The two halves are meant to read the same, so the tool descriptions are
+/// identical on both. They drifted once, in two ways at once, and nothing
+/// noticed: a test is cheaper than a convention.
+#[test]
+fn the_two_halves_declare_the_same_tool_descriptions() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let lua =
+        std::fs::read_to_string(root.join("plugin/maki_peer.lua")).expect("maki plugin source");
+    let ts = std::fs::read_to_string(root.join("opencode/src/index.ts"))
+        .expect("opencode plugin source");
+
+    for (tool, prefix) in [
+        (
+            "peer_send",
+            "Send an observation or status to one named peer",
+        ),
+        ("peer_broadcast", "Send an observation to EVERY peer"),
+    ] {
+        let on_maki = description(&lua, "description = \"", prefix);
+        let on_opencode = description(&ts, "description: \"", prefix);
+        assert_eq!(
+            on_maki, on_opencode,
+            "the {tool} description differs between the two halves"
+        );
+    }
+}
+
+/// The quoted string that follows the first description marker whose text
+/// starts with `prefix`.
+fn description(source: &str, marker: &str, prefix: &str) -> String {
+    let mut rest = source;
+    while let Some(at) = rest.find(marker) {
+        rest = &rest[at + marker.len()..];
+        let end = rest.find('"').expect("a description with no closing quote");
+        let text = &rest[..end];
+        if text.starts_with(prefix) {
+            return text.to_owned();
+        }
+        rest = &rest[end..];
+    }
+    panic!("no description starting with {prefix:?}");
+}
+
 #[test]
 fn no_call_sits_above_the_local_function_it_calls() {
     let src =
