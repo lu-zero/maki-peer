@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path"
 
-import { resolveSpoolRoot } from "../../opencode/src/spool.ts"
+import { resolveSpoolRoot } from "./shared/spool.ts"
 
 /**
  * The directory beside the spool where this host keeps its own runtime files.

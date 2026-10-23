@@ -29,7 +29,7 @@ The OpenCode half in `opencode/` is checked separately:
 - `cd opencode && bun test`
 - `cd opencode && bunx tsc --noEmit`
 
-Its tests drive the spool directly and assert the text handed to a session, which is that side's equivalent of a mailbox message. `src/spool.ts`, `src/peer.ts`, `src/protocol.ts`, and `src/receive.ts` hold the protocol and must not reference the plugin context, so they stay testable without a host. The Grok half imports them.
+Its tests drive the spool directly and assert the text handed to a session, which is that side's equivalent of a mailbox message. `src/spool.ts`, `src/peer.ts`, `src/protocol.ts`, and `src/receive.ts` hold the protocol and must not reference the plugin context, so they stay testable without a host. The Grok half vendors copies under `grok/src/shared`, because installing that plugin copies only its own directory, and a test requires the copies to match.
 
 The Grok half in `grok/` is checked separately:
 
@@ -44,7 +44,7 @@ Its tests assert the text a hook prints and the spool files that text came from.
 - `plugin.toml` — `min_maki_version` and the `[permissions]` request.
 - `tests/` — host harness and integration tests.
 - `opencode/` — the opencode plugin, its own `README.md`, and its tests.
-- `grok/` — the Grok plugin (hooks, a skill, and an MCP server), its own `README.md`, and its tests. It imports the host-free modules from `opencode/src`.
+- `grok/` — the Grok plugin (hooks, a skill, and an MCP server), its own `README.md`, and its tests. `src/shared` is a copy of the host-free spool modules.
 - `justfile` — check, lint, test, fmt-lua.
 
 ## The spool

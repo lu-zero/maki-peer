@@ -7,10 +7,10 @@ import {
   newMessageId,
   PeerRegistry,
   resolvePeer,
-} from "../../opencode/src/peer.ts"
-import { kindOf, sameTree, type Owner } from "../../opencode/src/protocol.ts"
-import { encodeBody } from "../../opencode/src/receive.ts"
-import { Spool } from "../../opencode/src/spool.ts"
+} from "./shared/peer.ts"
+import { kindOf, sameTree, type Owner } from "./shared/protocol.ts"
+import { encodeBody } from "./shared/receive.ts"
+import { Spool } from "./shared/spool.ts"
 import { actingSession, LABEL, ORIGIN_HOST, peerIdOf, peerNameOf, type SessionState } from "./state.ts"
 
 export type ToolResult = { text: string; error: boolean }

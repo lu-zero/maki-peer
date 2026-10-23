@@ -3,10 +3,10 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { messageRecord } from "../../opencode/src/peer.ts"
-import { parseOwner } from "../../opencode/src/protocol.ts"
-import { Spool } from "../../opencode/src/spool.ts"
-import { encodeFrame, FrameReader } from "../src/frame.ts"
+import { encodeMessage, LineReader } from "../src/frame.ts"
+import { messageRecord } from "../src/shared/peer.ts"
+import { parseOwner } from "../src/shared/protocol.ts"
+import { Spool } from "../src/shared/spool.ts"
 import { handleEvent, hookReply } from "../src/handle.ts"
 import { runtimeDir, spoolRootFromEnv } from "../src/paths.ts"
 import { readSummary } from "../src/summary.ts"
@@ -307,13 +307,23 @@ describe("tools", () => {
 })
 
 describe("frames", () => {
-  test("a content-length frame round trips", () => {
-    const reader = new FrameReader()
-    const bytes = encodeFrame({ jsonrpc: "2.0", id: 1, method: "ping" })
+  test("a json line round trips, including a split chunk", () => {
+    const reader = new LineReader()
+    const bytes = encodeMessage({ jsonrpc: "2.0", id: 1, method: "ping" })
     reader.push(bytes.subarray(0, 5))
     expect(reader.drain()).toEqual([])
     reader.push(bytes.subarray(5))
     expect(reader.drain()).toEqual([{ jsonrpc: "2.0", id: 1, method: "ping" }])
+  })
+})
+
+describe("vendored spool", () => {
+  test("matches the opencode sources, because install copies only this directory", () => {
+    for (const name of ["spool.ts", "peer.ts", "protocol.ts", "receive.ts"]) {
+      const here = readFileSync(join(import.meta.dir, "../src/shared", name), "utf8")
+      const there = readFileSync(join(import.meta.dir, "../../opencode/src", name), "utf8")
+      expect(here).toBe(there)
+    }
   })
 })
 

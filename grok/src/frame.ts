@@ -1,48 +1,30 @@
-/** MCP stdio framing. One JSON body, preceded by a Content-Length header. */
+/** MCP stdio. One JSON object per line, which is what Grok's client reads and writes. */
 
-export function encodeFrame(value: unknown): Buffer {
-  const body = Buffer.from(JSON.stringify(value), "utf8")
-  const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "utf8")
-  return Buffer.concat([header, body])
+export function encodeMessage(value: unknown): Buffer {
+  return Buffer.from(`${JSON.stringify(value)}\n`, "utf8")
 }
 
-export class FrameReader {
+export class LineReader {
   private buffer = Buffer.alloc(0)
 
   push(chunk: Buffer): void {
     this.buffer = Buffer.concat([this.buffer, chunk])
   }
 
-  /** Every complete frame currently buffered, in order. */
+  /** Every complete line currently buffered, in order. A line that is not JSON is skipped. */
   drain(): unknown[] {
     const messages: unknown[] = []
     for (;;) {
-      const headerEnd = this.findHeaderEnd()
-      if (headerEnd.start < 0) return messages
-      const header = this.buffer.subarray(0, headerEnd.start).toString("utf8")
-      const match = /content-length:\s*(\d+)/i.exec(header)
-      if (!match || match[1] === undefined) {
-        this.buffer = this.buffer.subarray(headerEnd.end)
-        continue
-      }
-      const length = Number(match[1])
-      const bodyEnd = headerEnd.end + length
-      if (this.buffer.length < bodyEnd) return messages
-      const body = this.buffer.subarray(headerEnd.end, bodyEnd).toString("utf8")
-      this.buffer = this.buffer.subarray(bodyEnd)
+      const nl = this.buffer.indexOf(0x0a)
+      if (nl < 0) return messages
+      const line = this.buffer.subarray(0, nl).toString("utf8").replace(/\r$/, "")
+      this.buffer = this.buffer.subarray(nl + 1)
+      if (line.trim() === "") continue
       try {
-        messages.push(JSON.parse(body) as unknown)
+        messages.push(JSON.parse(line) as unknown)
       } catch {
-        /* a torn frame is the parser's problem only when the length lied */
+        /* a line that is not JSON is ignored, the same way the client ignores one */
       }
     }
-  }
-
-  private findHeaderEnd(): { start: number; end: number } | { start: -1; end: -1 } {
-    const crlf = this.buffer.indexOf("\r\n\r\n")
-    if (crlf >= 0) return { start: crlf, end: crlf + 4 }
-    const lf = this.buffer.indexOf("\n\n")
-    if (lf >= 0) return { start: lf, end: lf + 2 }
-    return { start: -1, end: -1 }
   }
 }

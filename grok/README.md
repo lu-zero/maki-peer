@@ -92,4 +92,9 @@ bunx tsc --noEmit
 ```
 
 Tests use a temp spool through `MAKI_PEER_SPOOL`. They assert the hook reply
-and the spool files.
+and the spool files. `src/shared` is a copy of the OpenCode spool modules, and
+a test fails when the copy drifts. Installing the plugin copies only this
+directory, so the server cannot reach a sibling `opencode/` tree.
+
+The MCP server writes one JSON object per line. That is the framing Grok's
+client reads.

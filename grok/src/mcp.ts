@@ -1,7 +1,7 @@
 import { spoolRootFromEnv, runtimeDir } from "./paths.ts"
-import { FrameReader, encodeFrame } from "./frame.ts"
+import { LineReader, encodeMessage } from "./frame.ts"
 import { callTool } from "./tools.ts"
-import { Spool } from "../../opencode/src/spool.ts"
+import { Spool } from "./shared/spool.ts"
 
 const TOOLS = [
   {
@@ -93,12 +93,12 @@ async function onMessage(message: unknown): Promise<unknown | undefined> {
 }
 
 export async function serve(input: AsyncIterable<Uint8Array>, output: NodeJS.WritableStream): Promise<void> {
-  const reader = new FrameReader()
+  const reader = new LineReader()
   for await (const chunk of input) {
     reader.push(Buffer.from(chunk))
     for (const message of reader.drain()) {
       const response = await onMessage(message)
-      if (response !== undefined) output.write(encodeFrame(response))
+      if (response !== undefined) output.write(encodeMessage(response))
     }
   }
 }

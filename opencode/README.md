@@ -130,9 +130,10 @@ bunx tsc --noEmit # types
 `src/spool.ts`, `src/peer.ts`, and `src/receive.ts` hold the protocol and
 carry no reference to the plugin context, so they are tested directly against
 a temp spool. `src/index.ts` is the wiring: tools, the command, the event
-subscription, and the poll loop. The Grok half imports `spool.ts`, `peer.ts`,
-`protocol.ts`, and `receive.ts` and passes host `grok`. The defaults stay
-OpenCode.
+subscription, and the poll loop. The Grok half vendors copies of these
+modules under `grok/src/shared` and passes host `grok`. Installing that
+plugin copies only its own directory, so the copies travel with it. A test
+requires them to match. The defaults stay OpenCode.
 
 ## Limits
 

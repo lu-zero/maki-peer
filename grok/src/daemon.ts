@@ -2,8 +2,8 @@ import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from "node:f
 import { mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { DETAIL_REFRESH_SECONDS } from "../../opencode/src/protocol.ts"
-import { Spool } from "../../opencode/src/spool.ts"
+import { DETAIL_REFRESH_SECONDS } from "./shared/protocol.ts"
+import { Spool } from "./shared/spool.ts"
 import { handleEvent } from "./handle.ts"
 import { runtimeDir, spoolRootFromEnv } from "./paths.ts"
 import { listStates, pidAlive, publish, removeState, saveState, unpublish } from "./state.ts"

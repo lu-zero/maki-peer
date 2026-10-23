@@ -1,9 +1,9 @@
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 
-import { nameFromPeerID, peerIdFor, PeerRegistry } from "../../opencode/src/peer.ts"
-import { validId } from "../../opencode/src/protocol.ts"
-import { Spool } from "../../opencode/src/spool.ts"
+import { nameFromPeerID, peerIdFor, PeerRegistry } from "./shared/peer.ts"
+import { validId } from "./shared/protocol.ts"
+import { Spool } from "./shared/spool.ts"
 
 export const ORIGIN_HOST = "grok"
 export const ID_PREFIX = "gk"

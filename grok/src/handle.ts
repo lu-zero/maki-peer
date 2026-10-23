@@ -1,7 +1,7 @@
-import { deliveryText } from "../../opencode/src/peer.ts"
-import { DETAIL_REFRESH_SECONDS, validId, type PeerMessage } from "../../opencode/src/protocol.ts"
-import { receiveOnce } from "../../opencode/src/receive.ts"
-import { Spool } from "../../opencode/src/spool.ts"
+import { deliveryText } from "./shared/peer.ts"
+import { DETAIL_REFRESH_SECONDS, validId, type PeerMessage } from "./shared/protocol.ts"
+import { receiveOnce } from "./shared/receive.ts"
+import { Spool } from "./shared/spool.ts"
 import { readSummary } from "./summary.ts"
 import {
   appendPending,

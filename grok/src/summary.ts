@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
-import { MAX_MODEL_RUNES, titleOf } from "../../opencode/src/protocol.ts"
+import { MAX_MODEL_RUNES, titleOf } from "./shared/protocol.ts"
 
 export type SessionDetail = {
   title?: string
