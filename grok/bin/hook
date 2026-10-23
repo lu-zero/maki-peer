@@ -1,0 +1,91 @@
+#!/bin/sh
+# Keep the directory rule in step with runtimeDir and resolveSpoolRoot.
+set -eu
+
+if [ -n "${MAKI_PEER_SPOOL:-}" ]; then
+  dir=$(dirname -- "$MAKI_PEER_SPOOL")/grok-peer
+elif [ -d "${HOME}/.maki" ]; then
+  dir="${HOME}/.maki/grok-peer"
+else
+  state=${XDG_STATE_HOME:-"${HOME}/.local/state"}
+  dir="${state}/maki/grok-peer"
+fi
+
+if [ "${1:-}" = "--runtime-dir" ]; then
+  printf '%s\n' "$dir"
+  exit 0
+fi
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+root=$(CDPATH= cd -- "$here/.." && pwd)
+payload=$(cat)
+pid=$PPID
+mkdir -p "$dir"
+
+bun_bin() {
+  if command -v bun >/dev/null 2>&1; then
+    command -v bun
+    return 0
+  fi
+  if [ -x "${HOME}/.bun/bin/bun" ]; then
+    printf '%s\n' "${HOME}/.bun/bin/bun"
+    return 0
+  fi
+  return 1
+}
+
+read_port() {
+  if [ -f "$dir/daemon.port" ]; then
+    tr -cd '0-9' < "$dir/daemon.port"
+  fi
+}
+
+post() {
+  printf '%s' "$payload" | curl -sf -m 15 -X POST \
+    -H "content-type: application/json" \
+    -H "x-grok-pid: ${pid}" \
+    --data-binary @- \
+    "http://127.0.0.1:${1}/hook"
+}
+
+try_post() {
+  port=$(read_port || true)
+  if [ -z "${port}" ]; then
+    return 1
+  fi
+  post "$port"
+}
+
+run_inline() {
+  bun=$(bun_bin || true)
+  if [ -z "${bun}" ]; then
+    exit 0
+  fi
+  printf '%s' "$payload" | GROK_PID="$pid" "$bun" "$root/src/hook.ts"
+}
+
+if ! command -v curl >/dev/null 2>&1; then
+  run_inline || true
+  exit 0
+fi
+
+if try_post; then
+  exit 0
+fi
+
+bun=$(bun_bin || true)
+if [ -n "${bun}" ]; then
+  "$bun" "$root/src/daemon.ts" >>"$dir/daemon.log" 2>&1 &
+fi
+
+i=0
+while [ "$i" -lt 50 ]; do
+  if try_post; then
+    exit 0
+  fi
+  i=$((i + 1))
+  sleep 0.05
+done
+
+run_inline || true
+exit 0

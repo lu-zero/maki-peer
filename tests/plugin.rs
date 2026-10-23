@@ -121,30 +121,17 @@ fn peer_spawn_valid_model_passes_validation() {
     assert!(err.contains("only the tmux launcher"), "got: {err}");
 }
 
-/// The plugin is one Lua chunk loaded in file order, so a call to a
-/// `local function` sitting above its own declaration resolves to a global,
-/// which is nil, and throws on every call. Nothing else here can catch that: it
-/// needs a live UI, and it fails silently, because `maki.async.run` without
-/// `on_finish` swallows closure errors. A single forward reference shipped three
-/// confident wrong diagnoses before anyone read the file top to bottom, so the
-/// ordering is asserted here instead.
-///
-/// Line based and deliberately narrow. It sees `local function NAME`
-/// declarations with `--` comments cut at the first `--`, which is wrong for the
-/// two argv strings that contain one and harmless there. It cannot see a
-/// shadowing declaration inside a nested block, and it says nothing about a
-/// `local NAME = function` form the plugin does not use. Strings are not
-/// stripped, so a function name inside one would be reported.
-/// The two halves are meant to read the same, so the tool descriptions are
-/// identical on both. They drifted once, in two ways at once, and nothing
-/// noticed: a test is cheaper than a convention.
+/// The halves are meant to read the same, so the tool descriptions are
+/// identical. They drifted once, in two ways at once, and nothing noticed: a
+/// test is cheaper than a convention.
 #[test]
-fn the_two_halves_declare_the_same_tool_descriptions() {
+fn the_halves_declare_the_same_tool_descriptions() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let lua =
         std::fs::read_to_string(root.join("plugin/maki_peer.lua")).expect("maki plugin source");
     let ts = std::fs::read_to_string(root.join("opencode/src/index.ts"))
         .expect("opencode plugin source");
+    let grok = std::fs::read_to_string(root.join("grok/src/mcp.ts")).expect("grok plugin source");
 
     for (tool, prefix) in [
         (
@@ -155,9 +142,14 @@ fn the_two_halves_declare_the_same_tool_descriptions() {
     ] {
         let on_maki = description(&lua, "description = \"", prefix);
         let on_opencode = description(&ts, "description: \"", prefix);
+        let on_grok = description(&grok, "description: \"", prefix);
         assert_eq!(
             on_maki, on_opencode,
-            "the {tool} description differs between the two halves"
+            "the {tool} description differs between maki and opencode"
+        );
+        assert_eq!(
+            on_maki, on_grok,
+            "the {tool} description differs between maki and grok"
         );
     }
 }
@@ -178,6 +170,20 @@ fn description(source: &str, marker: &str, prefix: &str) -> String {
     panic!("no description starting with {prefix:?}");
 }
 
+/// The plugin is one Lua chunk loaded in file order, so a call to a
+/// `local function` sitting above its own declaration resolves to a global,
+/// which is nil, and throws on every call. Nothing else here can catch that: it
+/// needs a live UI, and it fails silently, because `maki.async.run` without
+/// `on_finish` swallows closure errors. A single forward reference shipped three
+/// confident wrong diagnoses before anyone read the file top to bottom, so the
+/// ordering is asserted here instead.
+///
+/// Line based and deliberately narrow. It sees `local function NAME`
+/// declarations with `--` comments cut at the first `--`, which is wrong for the
+/// two argv strings that contain one and harmless there. It cannot see a
+/// shadowing declaration inside a nested block, and it says nothing about a
+/// `local NAME = function` form the plugin does not use. Strings are not
+/// stripped, so a function name inside one would be reported.
 #[test]
 fn no_call_sits_above_the_local_function_it_calls() {
     let src =

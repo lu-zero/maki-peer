@@ -29,7 +29,14 @@ The OpenCode half in `opencode/` is checked separately:
 - `cd opencode && bun test`
 - `cd opencode && bunx tsc --noEmit`
 
-Its tests drive the spool directly and assert the text handed to a session, which is that side's equivalent of a mailbox message. `src/spool.ts`, `src/peer.ts`, and `src/receive.ts` hold the protocol and must not reference the plugin context, so they stay testable without a host.
+Its tests drive the spool directly and assert the text handed to a session, which is that side's equivalent of a mailbox message. `src/spool.ts`, `src/peer.ts`, `src/protocol.ts`, and `src/receive.ts` hold the protocol and must not reference the plugin context, so they stay testable without a host. The Grok half imports them.
+
+The Grok half in `grok/` is checked separately:
+
+- `cd grok && bun test`
+- `cd grok && bunx tsc --noEmit`
+
+Its tests assert the text a hook prints and the spool files that text came from. The hook script and the TypeScript resolve the runtime directory the same way, and a test locks that.
 
 ## Layout
 
@@ -37,13 +44,16 @@ Its tests drive the spool directly and assert the text handed to a session, whic
 - `plugin.toml` — `min_maki_version` and the `[permissions]` request.
 - `tests/` — host harness and integration tests.
 - `opencode/` — the opencode plugin, its own `README.md`, and its tests.
+- `grok/` — the Grok plugin (hooks, a skill, and an MCP server), its own `README.md`, and its tests. It imports the host-free modules from `opencode/src`.
 - `justfile` — check, lint, test, fmt-lua.
 
 ## The spool
 
-Both halves write presence records to `owners/<peer-id>.json` and messages to `inboxes/<peer-id>/<message-id>.json` under one per-user directory. The maki half resolves that directory through `maki.env.state_dir()`, the opencode half through `resolveSpoolRoot` in `opencode/src/spool.ts`. They must agree, including maki's rule that a `~/.maki` directory takes over every path when it exists.
+The three hosts write presence records to `owners/<peer-id>.json` and messages to `inboxes/<peer-id>/<message-id>.json` under one per-user directory. The maki half resolves that directory through `maki.env.state_dir()`, and the opencode half through `resolveSpoolRoot` in `opencode/src/spool.ts`. The grok half uses `resolveSpoolRoot` too, with `MAKI_PEER_SPOOL` as a test override. They must agree, including maki's rule that a `~/.maki` directory takes over every path when it exists.
 
-Two rules keep the two hosts compatible. Records carry `origin.host`, and a `session` field is honoured only when it names the reading host's own id format, because an id means nothing on the other side. A message that can never be delivered, because it names a session or host that is gone, is dropped and logged rather than retried until it expires.
+Grok keeps its own runtime files in a `grok-peer` directory beside the spool root: session state, the helper's port, and mail that is waiting for another Grok session. Those files are not protocol records.
+
+Two rules keep the hosts compatible. Records carry `origin.host`, and a `session` field is honoured only when it names the reading host's own id format, because an id means nothing on the other side. A message that can never be delivered, because it names a session or host that is gone, is dropped and logged rather than retried until it expires.
 
 ## Docs
 

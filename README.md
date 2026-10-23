@@ -1,23 +1,26 @@
 # maki-peer
 
-Local peer discovery and observation messaging between Maki and OpenCode.
+Local peer discovery and observation messaging between Maki, OpenCode, and Grok.
 
-This repository holds two plugins that share one spool protocol:
+This repository holds three plugins that share one spool protocol:
 
 - `plugin/` is a standalone Maki plugin. It does not add a Rust API or a
   builtin namespace. It uses the same Lua APIs as other Maki packages,
   including `maki.fs`, `maki.session`, `maki.defer_fn`, and `maki.fn`.
 - `opencode/` is the OpenCode plugin. See `opencode/README.md`.
+- `grok/` is the Grok plugin. See `grok/README.md`. Grok loads hooks, a skill,
+  and an MCP server. It does not load a TypeScript plugin. The server is
+  TypeScript run by bun, so it shares the OpenCode spool code.
 
-Both halves write presence records and message files into the same per-user
-directory, so a message from one lands in a session of the other.
+All three write presence records and message files into the same per-user
+directory, so a message from one lands in a session of another.
 
-The two halves are meant to read the same. They register the same tool names,
-and the descriptions, the message format and the text sanitising are meant to be
-identical, because a model that has learned one set uses the other the same way
-and an agent should not be able to tell which host it is talking to. A test
-compares the descriptions across the two files, so a change to one half alone
-fails the build.
+The three plugins are meant to read the same. They register the same tool
+names, and the descriptions, the message format and the text sanitising are
+meant to be identical, because a model that has learned one set uses the
+others the same way and an agent should not be able to tell which host it is
+talking to. A test compares the descriptions across the three files, so a
+change to one of them alone fails the build.
 
 ## Install
 
@@ -66,6 +69,17 @@ discovery directory loads, verified by probe; the `plugins` array forms were
 not re-tested on that release.
 `opencode/README.md` has the details and a way to verify the plugin loaded.
 
+### Grok
+
+bun must be on `PATH`, or installed at `~/.bun/bin/bun`. From a clone:
+
+```sh
+grok plugin install /absolute/path/to/maki-peer/grok --trust
+```
+
+Start a new session after installing. A live session shows up as
+`owners/gk-*.json` in the spool. `grok/README.md` has the details.
+
 ## Use
 
 The plugin registers each live Maki session in a per-user state directory and
@@ -87,7 +101,7 @@ Commands:
 Tools:
 
 - `peer_list` lists every live local session, with its model, status, and abbreviated id.
-  It also lists OpenCode instances once that plugin is installed.
+  It also lists OpenCode and Grok instances once those plugins are installed.
 - `peer_send` sends an observation or status to one named peer, on either host.
 - `peer_broadcast` sends one observation to every active peer.
 - `peer_spawn` starts an independent Maki process in a detached `tmux` session,
@@ -101,12 +115,14 @@ peer. There is no way to undo a broadcast and no per-recipient opt out, which
 is why the choice matters. The tool descriptions say the same thing, because
 that is where an agent reads it.
 
-The OpenCode side registers the same tool names under the `peer` namespace, so
-a model that has learned one set uses the other the same way. The `/peer`
+The OpenCode side registers the same tool names under the `peer` namespace.
+The Grok side registers the same tools on an MCP server named `peer`, so the
+model sees `peer__peer_list`, `peer__peer_send`, and `peer__peer_broadcast`.
+A model that has learned one set uses the others the same way. The `/peer`
 command exists only on the Maki side: an OpenCode command can only produce a
 model turn, and a peer list is reference rather than a prompt, so that host
-deliberately ships none. `peer_spawn` is also Maki only; an OpenCode server
-plugin has no sanctioned way to start a process.
+deliberately ships none. `peer_spawn` is Maki only; an OpenCode server plugin
+has no sanctioned way to start a process, and the Grok plugin has none either.
 
 Example:
 
@@ -155,23 +171,23 @@ the shape of the notice differs.
 ## Delivery
 
 A message carries the `origin` host that queued it. The `session` field names
-a session on the host that minted it and means nothing anywhere else, so a
-peer ignores `session` on a message whose `origin.host` is not `maki` and
-delivers it into the session the record belongs to. That rule is what lets
-another host share the same spool without knowing anything about maki
-sessions.
+a session on the host that minted it and means nothing anywhere else, so each
+host honours `session` only when `origin.host` is its own and otherwise
+delivers the message into the session the record belongs to. That rule is
+what lets the hosts share one spool.
 
 A message may also carry a topic: a short subject that says what the message
 is about, so a recipient can tell a box wide notice from a question without
 reading the body. It is optional, and a message without one reads the way it
 always did. It is free text written by another agent, so it is sanitised like
-a title and capped at forty eight runes. Both halves print it in front of the
-body, in the transcript step and in the text the session receives.
+a title and capped at forty eight runes. Each host prints it in front of the
+body. Maki also draws it in the transcript step.
 
-Each peer names itself from its own peer id, `maki-Cg68nHqT` and
-`opencode-072f2841`, so a name is stable and needs no configuration. A maki peer
-id is the session's storage id, so the name is the first eight characters of
-that id: stable across reloads, like the OpenCode name. The session
+Each peer names itself from its own peer id, `maki-Cg68nHqT`,
+`opencode-072f2841`, and `grok-072f2841`, so a name is stable and needs no
+configuration. A maki peer id is the session's storage id, so the name is the
+first eight characters of that id: stable across reloads, like the OpenCode
+name and the Grok name. The session
 title travels alongside as an optional `title` field, which is what you set
 when you want a peer to carry a role rather than an id. A title is data from
 another agent, not an instruction.
@@ -186,18 +202,18 @@ record and is cut to twenty four with an ellipsis on the list line, which is
 one line per peer and has a widest entry to protect.
 
 A peer's `status`, `cwd` and `title` come from the session itself, not from
-guessing, and both halves work the same way: one record per session, each
+guessing, and the plugins work the same way: one record per session, each
 reading its own host. Maki reads `maki.session.read()` for the session its
-record names, OpenCode reads `session.get`. A peer is a session, on either
-host.
+record names, OpenCode reads `session.get`, and Grok reads the session
+summary for the title and the model. A peer is a session, on each host.
 
 That makes "self" the same rule everywhere. Self is the session that asked:
 sending to your own session is refused, sending to another session of your own
 host works, and a broadcast reaches the others.
 
 Status confidence differs. Maki reads it from the host, so it is
-authoritative. OpenCode infers it from events, so the field is the same and the
-confidence is not.
+authoritative. OpenCode infers it from events, and Grok infers it from hook
+events, so the field is the same and the confidence is not.
 
 Two further notes that came out of running both halves against one spool.
 
@@ -205,14 +221,14 @@ Delivery order is not guaranteed. Within a single pass a peer delivers oldest
 first, but passes are independent, so three probes sent in order arrived as 1,
 3, 2. An agent that needs an order should put the order in the message.
 
-Delivery is at least once, and the mechanism differs by half. On Maki the peer
+Delivery is at least once, and the mechanism differs by host. On Maki the peer
 id is the session's storage id, and storage locks a live session to the one
 process holding it, so a record has exactly one poller and cannot deliver
 twice. On OpenCode one record can be polled by more than one process, since
 the shared server and a session's own client both load the plugin, so a
 delivery is made exclusive by a claim: the message is renamed before it is
 read, an expired claim goes back to the queue, and a poller that died cannot
-wedge an inbox.
+wedge an inbox. Grok uses that same claim.
 
 Both fields are authoritative for what they report. The list tags only the
 exceptions: `(you)` marks the session that asked, and `(other dir)` marks a
@@ -225,7 +241,8 @@ A send to a handle that no longer exists is refused with the list of live
 peers. A Maki peer id is the session's storage id, so it survives a reload: the
 next process resumes the session under the same id and the address keeps
 working, and so do the record and any queued mail, which the next process takes
-over instead of rebuilding. An OpenCode peer id is a hash of its session and behaves the same
+over instead of rebuilding. An OpenCode peer id is a hash of its session, and a
+Grok peer id is a hash of its session with a `gk-` prefix. Both behave the same
 way. A handle goes stale only when the session itself is gone, and the list in
 the refusal is how a replacement is found.
 
@@ -251,6 +268,12 @@ On the OpenCode side a session becomes a peer once the plugin observes an
 event for it, because OpenCode offers plugins no way to list existing
 sessions. `opencode/README.md` has the details.
 
+On the Grok side a session becomes a peer when a hook event names it. Mail is
+delivered at the next turn boundary, after a tool call or when a turn stops.
+Mail that arrives while the session is idle waits for the next turn. A helper
+process refreshes presence during a long tool call. `grok/README.md` has the
+details.
+
 One difference between the halves was known and is now fixed. The Maki half
 stripped control characters by byte, so it kept U+0080 to U+009F, and the
 OpenCode half stripped them by code point, so it did not. A title or a topic
@@ -258,13 +281,13 @@ carrying one of those was stored differently depending on which half wrote
 it, and so was a title carrying a no break space or a line separator, which
 one half collapsed and the other kept.
 
-Both halves now strip the same characters: control characters by code point,
+The hosts now strip the same characters: control characters by code point,
 the Unicode space separators, the two line separators and the zero width no
 break space, then the whitespace runs collapse to one space and the edges are
 trimmed. `parity/sanitising.json` says what that means in examples, and both
 test suites read it, so a rule that drifts on one side fails on both.
 
-A record written by another host is free text, so both halves sanitise it on
+A record written by another host is free text, so each host sanitises it on
 the way in: the title like a title, the model like a title with a smaller cap,
 and the status against the three the protocol knows. A status that is none of
 them reads as idle. Nothing a peer writes can put a second row in the list.

@@ -1,0 +1,5 @@
+{
+  "name": "maki-peer",
+  "description": "Local peer discovery and observation messaging with Maki, OpenCode, and Grok",
+  "version": "0.1.0"
+}
