@@ -31,9 +31,12 @@ export function statusFor(state: { busy: boolean; waiting: boolean }): PeerStatu
 /**
  * Derived from the session id so a plugin reload reuses the same presence
  * record instead of leaving an orphan for the stale window to reap.
+ *
+ * The prefix is part of the id. Two hosts that hashed the same session string
+ * would otherwise publish one record. OpenCode uses `oc`.
  */
-export function peerIdFor(sessionID: string): string {
-  return `oc-${createHash("sha256").update(sessionID).digest("hex").slice(0, 16)}`
+export function peerIdFor(sessionID: string, prefix = "oc"): string {
+  return `${prefix}-${createHash("sha256").update(sessionID).digest("hex").slice(0, 16)}`
 }
 
 export type LivePeer = {
@@ -69,11 +72,19 @@ export class PeerRegistry {
   private readonly spool: Spool
   private readonly label: string
   private readonly instance?: string
+  private readonly idPrefix: string
+  private readonly host: string
 
-  constructor(spool: Spool, label = "opencode", opts: { instance?: string } = {}) {
+  constructor(
+    spool: Spool,
+    label = "opencode",
+    opts: { instance?: string; idPrefix?: string; host?: string } = {},
+  ) {
     this.spool = spool
     this.label = label
     this.instance = opts.instance
+    this.idPrefix = opts.idPrefix ?? "oc"
+    this.host = opts.host ?? ORIGIN_HOST
   }
 
   observe(sessionID: string, model?: string): LivePeer | undefined {
@@ -83,7 +94,7 @@ export class PeerRegistry {
       this.setModel(sessionID, model)
       return existing
     }
-    const id = peerIdFor(sessionID)
+    const id = peerIdFor(sessionID, this.idPrefix)
     const peer: LivePeer = {
       sessionID,
       id,
@@ -223,12 +234,12 @@ export class PeerRegistry {
    */
   idFor(sessionID: string): string | undefined {
     if (!validId(sessionID)) return undefined
-    return this.live.get(sessionID)?.id ?? peerIdFor(sessionID)
+    return this.live.get(sessionID)?.id ?? peerIdFor(sessionID, this.idPrefix)
   }
 
   nameFor(sessionID: string): string | undefined {
     if (!validId(sessionID)) return undefined
-    return this.live.get(sessionID)?.name ?? nameFromPeerID(this.label, peerIdFor(sessionID))
+    return this.live.get(sessionID)?.name ?? nameFromPeerID(this.label, peerIdFor(sessionID, this.idPrefix))
   }
 
   ids(): string[] {
@@ -273,7 +284,7 @@ export class PeerRegistry {
       ...(peer.cwd ? { cwd: peer.cwd } : {}),
       ...(this.instance ? { instance: this.instance } : {}),
       session_id: peer.sessionID,
-      origin: { host: ORIGIN_HOST },
+      origin: { host: this.host },
     }
   }
 }
@@ -554,9 +565,9 @@ function listTitle(title: string | undefined): string {
  */
 export function formatPeerLines(
   peers: Owner[],
-  self: { ids: ReadonlySet<string>; cwd?: string; sessionID?: string },
+  self: { ids: ReadonlySet<string>; cwd?: string; sessionID?: string; idPrefix?: string },
 ): string[] {
-  const mine = self.sessionID ? peerIdFor(self.sessionID) : undefined
+  const mine = self.sessionID ? peerIdFor(self.sessionID, self.idPrefix ?? "oc") : undefined
   const widths = abbreviateIds(peers.map((peer) => peer.id))
   const lines = peers.map((peer) => {
     const flags: string[] = []
@@ -647,6 +658,7 @@ export function messageRecord(input: {
   topic?: string
   session?: string
   ttlSeconds?: number
+  host?: string
 }): Record<string, unknown> {
   const now = Math.floor(Date.now() / 1000)
   const ttl = Math.max(1, Math.min(Math.floor(input.ttlSeconds ?? MESSAGE_TTL_SECONDS), MESSAGE_TTL_SECONDS))
@@ -662,7 +674,7 @@ export function messageRecord(input: {
     // something a reader can print. A message without one is still a message.
     ...(topicOf(input.topic) ? { topic: topicOf(input.topic) } : {}),
     ...(input.session ? { session: input.session } : {}),
-    origin: { host: ORIGIN_HOST },
+    origin: { host: input.host ?? ORIGIN_HOST },
     created: now,
     expires: now + ttl,
   }

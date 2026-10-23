@@ -36,9 +36,12 @@ export type Addressing = {
  * owning peer. An address from our own host that we do not recognise belongs to
  * a session that is gone, and no later tick can deliver it, so it resolves to
  * undefined and the message is dropped.
+ *
+ * `host` is the reader. It defaults to opencode, which is the host this file
+ * was written for. A third host passes its own name and the rule is unchanged.
  */
-export function addressFor(message: PeerMessage, addressing: Addressing): string | undefined {
-  if (originHost(message) !== "opencode") return addressing.ownSession
+export function addressFor(message: PeerMessage, addressing: Addressing, host = "opencode"): string | undefined {
+  if (originHost(message) !== host) return addressing.ownSession
   if (!message.session) return addressing.ownSession
   return addressing.owns(message.session) ? message.session : undefined
 }
@@ -119,6 +122,8 @@ export async function receiveOnce(input: {
   addressing: Addressing
   deliver: Deliver
   onDrop?: (message: PeerMessage, reason: string) => void
+  /** Honour `session` only when the message names this host. */
+  host?: string
 }): Promise<ReceiveReport> {
   const { spool, peerID, deliver } = input
   const instance = input.instance ?? "receive-once"
@@ -177,7 +182,7 @@ export async function receiveOnce(input: {
 
   report.overflow = Math.max(0, pending.length - MAX_INBOX)
   for (const item of pending.slice(0, MAX_INBOX)) {
-    const target = addressFor(item.value, input.addressing)
+    const target = addressFor(item.value, input.addressing, input.host ?? "opencode")
     if (!target) {
       await spool.remove(item.claimPath).catch(() => {})
       report.dropped++
