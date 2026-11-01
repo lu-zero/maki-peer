@@ -94,9 +94,9 @@ cp -a /absolute/path/to/maki-peer/vibe ~/.vibe/plugins/maki-peer
 ```
 
 Start a new session, or run `/reload`. A live session shows up as
-`owners/vb-*.json` in the spool. `vibe/README.md` has the details. Once Vibe
-runs the plugin hooks, mail is appended to the next tool result. Vibe 3.0.4
-does. An idle session does not start a turn to read it.
+`owners/vb-*.json` in the spool. `vibe/README.md` has the details. Mail is
+appended to the next tool result. An idle session does not start a turn to
+read it.
 
 ## Use
 
@@ -296,13 +296,11 @@ Mail that arrives while the session is idle waits for the next turn. A helper
 process refreshes presence during a long tool call. `grok/README.md` has the
 details.
 
-On the Vibe side a session becomes a peer when its MCP server starts. Once
-Vibe runs the plugin hooks, mail is appended to the next tool result. Vibe
-2.26 pins those hooks and does not run them. Vibe 3.0.4 does. A turn that
-calls no tool does not see the mail, and an idle session does not start a
-turn, so a message can expire after 300 seconds. `vibe/README.md` has the
-details, and `vibe/upstream-issue.md` asks Vibe for a hook that can carry
-text into an idle turn.
+On the Vibe side a session becomes a peer when its MCP server starts. Mail is
+appended to the next tool result. A turn that calls no tool does not see it,
+and an idle session does not start a turn, so a message can expire after 300
+seconds. `vibe/README.md` has the details, and `vibe/upstream-issue.md` asks
+Vibe for a hook that can carry text into an idle turn.
 
 One difference between the halves was known and is now fixed. The Maki half
 stripped control characters by byte, so it kept U+0080 to U+009F, and the

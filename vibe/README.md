@@ -88,11 +88,6 @@ no directory, and `same_dir_only` refuses to select peers. The host does not
 report a model, a title, or a permission prompt, so the status is `working`
 or `idle`.
 
-Vibe 2.26 pins these hooks and does not run them. On that version the tools
-still list and send, the presence record stays idle, and mail stays in the
-inbox. Vibe 3.0.4 runs a native plugin's hooks from the session copy of the
-package, with `PLUGIN_ROOT` and `PLUGIN_DATA` set.
-
 A session id means something only on the host that minted it. A `session`
 field is written only when the receiver is another Vibe session, and it is
 honoured only when `origin.host` is `vibe`. A message from Maki, OpenCode, or

@@ -1,4 +1,4 @@
-/** MCP stdio. One JSON object per line, which is what Vibe 2.26's client reads and writes. */
+/** MCP stdio. One JSON object per line, which is what Vibe's client reads and writes. */
 
 export function encodeMessage(value: unknown): Buffer {
   return Buffer.from(`${JSON.stringify(value)}\n`, "utf8")
