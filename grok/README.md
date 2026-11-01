@@ -1,8 +1,10 @@
 # grok-maki-peer
 
-The Grok half of `maki-peer`. It speaks the same spool protocol as the Maki,
-OpenCode, and Vibe plugins in this repository, so the hosts discover each
-other and pass observations through one shared directory.
+The Grok half of [maki-peer](../README.md). It speaks the same spool protocol
+as the [Maki](../README.md#maki), [OpenCode](../opencode/README.md), and
+[Vibe](../vibe/README.md) plugins, so the hosts discover each other and pass
+observations through one shared directory. The layout is
+[Architecture](../docs/architecture.md).
 
 Grok does not load a TypeScript plugin. This directory is a Grok plugin:
 hooks, a skill, and an MCP server. The server and the hook logic are
@@ -75,9 +77,10 @@ cut body ends with `[truncated]`.
 
 A session id means something only on the host that minted it. A `session`
 field is written only when the receiver is another Grok session, and it is
-honoured only when `origin.host` is `grok`. A message from Maki or OpenCode
-is delivered to the session that owns the inbox. A Grok address that names a
-session this host no longer runs is dropped.
+honoured only when `origin.host` is `grok`. A message from
+[Maki](../README.md#maki) or [OpenCode](../opencode/README.md) is delivered
+to the session that owns the inbox. A Grok address that names a session this
+host no longer runs is dropped.
 
 When several Grok sessions share one process, a send or a broadcast needs
 `GROK_SESSION_ID` to know which session asked. Without it, the list still
