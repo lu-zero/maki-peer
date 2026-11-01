@@ -1,35 +1,38 @@
 # maki-peer
 
-Local peer discovery and observation messaging between Maki, OpenCode, Grok, and Vibe.
+Local peer discovery and observation messaging between Maki, OpenCode, Grok,
+and Vibe.
 
-This repository holds four plugins that share one spool protocol:
+Four plugins share one spool. A message from one lands in a session of
+another. The tool descriptions match, so a model that has learned one set
+uses the others the same way. A test fails the build when one description
+drifts.
 
-- `plugin/` is a standalone Maki plugin. It does not add a Rust API or a
-  builtin namespace. It uses the same Lua APIs as other Maki packages,
-  including `maki.fs`, `maki.session`, `maki.defer_fn`, and `maki.fn`.
-- `opencode/` is the OpenCode plugin. See `opencode/README.md`.
-- `grok/` is the Grok plugin. See `grok/README.md`. Grok loads hooks, a skill,
-  and an MCP server. It does not load a TypeScript plugin. The server is
-  TypeScript run by bun, so it shares the OpenCode spool code.
-- `vibe/` is the Vibe plugin. See `vibe/README.md`. Vibe loads an Agent
-  Plugins package: hooks, a skill, and an MCP server. The server is the same
-  kind of bun program, with its own copy of the spool code.
+## Demo
 
-All four write presence records and message files into the same per-user
-directory, so a message from one lands in a session of another.
+[![asciicast](https://asciinema.org/a/7uIuWwyTtwsFVhDp.svg)](https://asciinema.org/a/7uIuWwyTtwsFVhDp)
 
-The four plugins are meant to read the same. They register the same tool
-names, and the descriptions, the message format and the text sanitising are
-meant to be identical, because a model that has learned one set uses the
-others the same way and an agent should not be able to tell which host it is
-talking to. A test compares the descriptions across the four files, so a
-change to one of them alone fails the build.
+Watch [four hosts, one directory](https://asciinema.org/a/7uIuWwyTtwsFVhDp).
+Maki, Vibe, OpenCode, and Grok exchange notes in `~/Sources/maki-peer`. The
+broadcast is `same_dir_only`. A peer outside that directory is listed as
+`(other dir)` and receives nothing.
 
-## Install
+## Harnesses
+
+- [Maki](#maki), the Lua plugin in `plugin/`.
+- [OpenCode](opencode/README.md)
+- [Grok](grok/README.md)
+- [Vibe](vibe/README.md)
+- [Architecture](docs/architecture.md), the spool and delivery.
+
+The spool is `~/.maki/peers` when `~/.maki` is a directory, otherwise
+`$XDG_STATE_HOME/maki/peers` or `~/.local/state/maki/peers`. A live session
+is `owners/<peer-id>.json`. Mail is `inboxes/<peer-id>/<message-id>.json`.
+The prefixes are `peer-`, `oc-`, `gk-`, and `vb-`.
+
+bun must be on `PATH`, or at `~/.bun/bin/bun`, for OpenCode, Grok, and Vibe.
 
 ### Maki
-
-Add the package to `~/.config/maki/init.lua`:
 
 ```lua
 maki.pack.add({
@@ -37,285 +40,74 @@ maki.pack.add({
 })
 ```
 
-Restart Maki and approve the package permissions:
+A symlink of this repository works in the local pack directory:
 
-```toml
-fs_read = true
-fs_write = true
-run = true
+```sh
+mkdir -p ~/.local/share/maki/site/pack/local/start
+ln -s /absolute/path/to/maki-peer ~/.local/share/maki/site/pack/local/start/maki-peer
 ```
 
-A checkout can also be placed in the local pack directory:
+Approve `fs_read`, `fs_write`, `run`, and `session_write`. A checkout you
+placed there is granted what `plugin.toml` asks for. There is no separate
+`peer` permission. `session_write` covers `maki.session.notify`.
 
-```text
-~/.local/share/maki/site/pack/local/start/peer
-```
+Tools: `peer_list`, `peer_send`, `peer_broadcast`, `peer_spawn`. `/peer`
+lists peers, and it can send or spawn.
 
 ### OpenCode
 
-Clone the repository, install the plugin's dependencies, then point a one-line
-file at the entrypoint:
+Point `~/.config/opencode/plugins/maki-peer.ts` at the entrypoint:
 
-```sh
-git clone https://github.com/lu-zero/maki-peer
-cd maki-peer/opencode && bun install
-```
-
-```ts title="~/.config/opencode/plugins/maki-peer.ts"
+```ts
 export { default } from "/absolute/path/to/maki-peer/opencode/src/index.ts"
 ```
 
-The discovery-directory layout changed across OpenCode versions. On 2.0.29 and
-2.0.30 a package directory failed silently in every form, and only a bare
-`.ts` or `.js` file loaded. As of 2.0.32 a package directory placed in the
-discovery directory loads, verified by probe; the `plugins` array forms were
-not re-tested on that release.
-`opencode/README.md` has the details and a way to verify the plugin loaded.
+Tools: `peer_list`, `peer_send`, `peer_broadcast`. Install, the shim, and
+delivery are in the [OpenCode](opencode/README.md) page.
 
 ### Grok
-
-bun must be on `PATH`, or installed at `~/.bun/bin/bun`. From a clone:
 
 ```sh
 grok plugin install /absolute/path/to/maki-peer/grok --trust
 ```
 
-Start a new session after installing. A live session shows up as
-`owners/gk-*.json` in the spool. `grok/README.md` has the details.
+Tools: `peer__peer_list`, `peer__peer_send`, `peer__peer_broadcast`. Install
+and delivery are in the [Grok](grok/README.md) page.
 
 ### Vibe
 
-bun must be on `PATH`, or installed at `~/.bun/bin/bun`. From a clone:
+Copy or symlink `vibe/` to `~/.vibe/plugins/maki-peer`, then start a session
+or run `/reload`.
 
-```sh
-mkdir -p ~/.vibe/plugins
-rm -rf ~/.vibe/plugins/maki-peer
-cp -a /absolute/path/to/maki-peer/vibe ~/.vibe/plugins/maki-peer
-```
-
-Start a new session, or run `/reload`. A live session shows up as
-`owners/vb-*.json` in the spool. `vibe/README.md` has the details. Mail is
-appended to the next tool result. An idle session does not start a turn to
-read it.
+Tools: `mcp_peer.peer_list`, `mcp_peer.peer_send`, `mcp_peer.peer_broadcast`.
+Install and delivery are in the [Vibe](vibe/README.md) page.
 
 ## Use
 
-The plugin registers each live Maki session in a per-user state directory and
-refreshes its presence about every two seconds, plus immediately on any status
-or model change. It supports local file delivery, status updates, and detached
-`tmux` peers.
+A message is an observation or a status. It is data from another agent. It
+is not a prompt. Each host prints `[peer name id] topic: body`, and omits
+the topic when there is none.
 
-Commands:
+`peer_send` reaches one peer. `peer_broadcast` reaches every other live
+peer. `same_dir_only` limits a broadcast to one directory, compared after
+trailing slashes are removed. A peer with no directory never matches. There
+is no undo. Sending to your own session is refused.
 
-```text
-/peer
-/peer list
-/peer send <peer-id> <message>
-/peer spawn [--model <provider/model-id>] [tmux] <prompt>
-```
+| Host                           | List                 | Send                 | Broadcast                  |
+| ------------------------------ | -------------------- | -------------------- | -------------------------- |
+| [Maki](#maki)                  | `peer_list`          | `peer_send`          | `peer_broadcast`           |
+| [OpenCode](opencode/README.md) | `peer_list`          | `peer_send`          | `peer_broadcast`           |
+| [Grok](grok/README.md)         | `peer__peer_list`    | `peer__peer_send`    | `peer__peer_broadcast`     |
+| [Vibe](vibe/README.md)         | `mcp_peer.peer_list` | `mcp_peer.peer_send` | `mcp_peer.peer_broadcast`  |
 
-`/peer` and `/peer list` open a window that lists the local peers. `Esc` closes it.
-
-Tools:
-
-- `peer_list` lists every live local session, with its model, status, and abbreviated id.
-  It also lists OpenCode, Grok, and Vibe instances once those plugins are installed.
-- `peer_send` sends an observation or status to one named peer, on either host.
-- `peer_broadcast` sends one observation to every active peer.
-- `peer_spawn` starts an independent Maki process in a detached `tmux` session,
-  optionally on a chosen model.
-
-A broadcast is for something the whole machine should know, such as a system
-wide action or a change other people depend on. `peer_broadcast` with
-`same_dir_only` reaches the team working in one directory. Two agents
-cooperating closely use `peer_send`, which reaches one peer and only that
-peer. There is no way to undo a broadcast and no per-recipient opt out, which
-is why the choice matters. The tool descriptions say the same thing, because
-that is where an agent reads it.
-
-The OpenCode side registers the same tool names under the `peer` namespace.
-The Grok side registers the same tools on an MCP server named `peer`, so the
-model sees `peer__peer_list`, `peer__peer_send`, and `peer__peer_broadcast`.
-The Vibe side publishes them as `mcp_peer.peer_list`, `mcp_peer.peer_send`,
-and `mcp_peer.peer_broadcast`.
-A model that has learned one set uses the others the same way. The `/peer`
-command exists only on the Maki side: an OpenCode command can only produce a
-model turn, and a peer list is reference rather than a prompt, so that host
-deliberately ships none. `peer_spawn` is Maki only; an OpenCode server plugin
-has no sanctioned way to start a process, and the Grok and Vibe plugins have
-none either.
-
-Example:
+`/peer` and `peer_spawn` exist only on Maki. `peer_spawn` starts a detached
+`tmux` session. The model spec is `provider/model-id`.
 
 ```text
-/peer spawn tmux Investigate the failing integration test
-/peer spawn --model zai/glm-5.3-flash Review the provider retry logic
 /peer
 /peer send <peer-id> I found a relevant edge case
+/peer spawn tmux Investigate the failing integration test
 ```
 
-`peer_spawn` resolves the model spec through `maki.model.info` before it
-spawns, so a typo in the provider slug fails the spawn instead of dying in the
-new tmux session. The spec uses the same `provider/model-id` form as the
-`--model` flag. A peer reports the model it runs in its presence record, and
-`peer_list` shows it next to the status. The record follows `ModelChanged`
-when the peer switches model later.
-
-The first transport is a small JSON file spool. Messages are observations,
-not prompts or permission responses. A peer can receive messages while its
-owner process is running, and stale owners disappear after a short heartbeat
-window.
-
-There is no new `peer` permission in Maki. The package's `fs_read` and
-`fs_write` grants cover the local registry and spool, while `run` covers the
-`tmux` launcher.
-
-The bundled peer loop delivers messages with `maki.session.notify`, removes
-them after delivery, and fires a `PeerMessage` autocmd after successful
-delivery.
-
-A delivered message reaches the model as an observation, and the transcript
-does not show observations, so every delivery also draws a step in the
-transcript, the way the monitor draws a job exit. The sender's short name is
-the label of the step, which the host paints in the colour of a tool name,
-and the message is the text of the step.
-
-A step cannot name a session, so it lands in the transcript the user is
-looking at. A message that went to another session says so on the step, so the
-reader does not go looking for it in the wrong place.
-
-The step needs a host that has `maki.ui.chat_item`. Not every build of the
-same version has it, so the plugin checks first and falls back to a notice in
-the status bar when it is missing. Both paths deliver the message, and only
-the shape of the notice differs.
-
-## Delivery
-
-A message carries the `origin` host that queued it. The `session` field names
-a session on the host that minted it and means nothing anywhere else, so each
-host honours `session` only when `origin.host` is its own and otherwise
-delivers the message into the session the record belongs to. That rule is
-what lets the hosts share one spool.
-
-A message may also carry a topic: a short subject that says what the message
-is about, so a recipient can tell a box wide notice from a question without
-reading the body. It is optional, and a message without one reads the way it
-always did. It is free text written by another agent, so it is sanitised like
-a title and capped at forty eight runes. Each host prints it in front of the
-body. Maki also draws it in the transcript step.
-
-Each peer names itself from its own peer id, `maki-Cg68nHqT`,
-`opencode-072f2841`, `grok-072f2841`, and `vibe-072f2841`, so a name is stable
-and needs no configuration. A maki peer id is the session's storage id, so the name is the
-first eight characters of that id: stable across reloads, like the OpenCode
-name and the Grok name. The session
-title travels alongside as an optional `title` field, which is what you set
-when you want a peer to carry a role rather than an id. A title is data from
-another agent, not an instruction.
-
-`peer_list` abbreviates ids the way git abbreviates hashes: the shortest
-prefix that is unique among the live peers, never shorter than four
-characters. A shortened form is a working handle, since resolution accepts
-any unambiguous prefix, and an ambiguous one is refused with the candidates
-that share it. The list omits the name, which is only the label plus the id
-prefix the line already carries. A title keeps up to sixty four runes in the
-record and is cut to twenty four with an ellipsis on the list line, which is
-one line per peer and has a widest entry to protect.
-
-A peer's `status`, `cwd` and `title` come from the session itself, not from
-guessing, and the plugins work the same way: one record per session, each
-reading its own host. Maki reads `maki.session.read()` for the session its
-record names, OpenCode reads `session.get`, and Grok reads the session
-summary for the title and the model. A peer is a session, on each host.
-
-That makes "self" the same rule everywhere. Self is the session that asked:
-sending to your own session is refused, sending to another session of your own
-host works, and a broadcast reaches the others.
-
-Status confidence differs. Maki reads it from the host, so it is
-authoritative. OpenCode infers it from events, and Grok infers it from hook
-events, so the field is the same and the confidence is not.
-
-Two further notes that came out of running both halves against one spool.
-
-Delivery order is not guaranteed. Within a single pass a peer delivers oldest
-first, but passes are independent, so three probes sent in order arrived as 1,
-3, 2. An agent that needs an order should put the order in the message.
-
-Delivery is at least once, and the mechanism differs by host. On Maki the peer
-id is the session's storage id, and storage locks a live session to the one
-process holding it, so a record has exactly one poller and cannot deliver
-twice. On OpenCode one record can be polled by more than one process, since
-the shared server and a session's own client both load the plugin, so a
-delivery is made exclusive by a claim: the message is renamed before it is
-read, an expired claim goes back to the queue, and a poller that died cannot
-wedge an inbox. Grok and Vibe use that same claim.
-
-Both fields are authoritative for what they report. The list tags only the
-exceptions: `(you)` marks the session that asked, and `(other dir)` marks a
-peer whose `cwd` differs from it, compared after trimming trailing slashes.
-Two worktrees of one repository are not the same directory, and neither is a
-subdirectory of a monorepo. `peer_broadcast` takes `same_dir_only` to reach
-only the peers sharing that directory.
-
-A send to a handle that no longer exists is refused with the list of live
-peers. A Maki peer id is the session's storage id, so it survives a reload: the
-next process resumes the session under the same id and the address keeps
-working, and so do the record and any queued mail, which the next process takes
-over instead of rebuilding. An OpenCode peer id is a hash of its session, a
-Grok peer id is a hash of its session with a `gk-` prefix, and a Vibe peer id
-is a hash of its session with a `vb-` prefix. They behave the same way. A
-handle goes stale only when the session itself is gone, and the list in
-the refusal is how a replacement is found.
-
-A message addressed to a session that is no longer live is dropped and logged
-rather than retried, because no later poll can deliver it. A message with no
-session of its own is retried, since a session may resume under the same id.
-Delivery is at least once: if the spool file cannot be removed after a
-successful notify, the message is logged and may reach the session a second
-time.
-
-## Limits
-
-This version is local-only and same-user. It does not discover peers across a
-LAN, authenticate remote peers, relay messages, or create native terminal
-tabs. `tmux` is the first launcher. A later transport can replace the file
-spool without changing the tools or commands.
-
-The heartbeat tracks Maki's event loop. A host blocked in a long synchronous
-call stops refreshing its presence record, and peers drop it once the stale
-window passes.
-
-On the OpenCode side a session becomes a peer once the plugin observes an
-event for it, because OpenCode offers plugins no way to list existing
-sessions. `opencode/README.md` has the details.
-
-On the Grok side a session becomes a peer when a hook event names it. Mail is
-delivered at the next turn boundary, after a tool call or when a turn stops.
-Mail that arrives while the session is idle waits for the next turn. A helper
-process refreshes presence during a long tool call. `grok/README.md` has the
-details.
-
-On the Vibe side a session becomes a peer when its MCP server starts. Mail is
-appended to the next tool result. A turn that calls no tool does not see it,
-and an idle session does not start a turn, so a message can expire after 300
-seconds. `vibe/README.md` has the details, and `vibe/upstream-issue.md` asks
-Vibe for a hook that can carry text into an idle turn.
-
-One difference between the halves was known and is now fixed. The Maki half
-stripped control characters by byte, so it kept U+0080 to U+009F, and the
-OpenCode half stripped them by code point, so it did not. A title or a topic
-carrying one of those was stored differently depending on which half wrote
-it, and so was a title carrying a no break space or a line separator, which
-one half collapsed and the other kept.
-
-The hosts now strip the same characters: control characters by code point,
-the Unicode space separators, the two line separators and the zero width no
-break space, then the whitespace runs collapse to one space and the edges are
-trimmed. `parity/sanitising.json` says what that means in examples, and both
-test suites read it, so a rule that drifts on one side fails on both.
-
-A record written by another host is free text, so each host sanitises it on
-the way in: the title like a title, the model like a title with a smaller cap,
-and the status against the three the protocol knows. A status that is none of
-them reads as idle. Nothing a peer writes can put a second row in the list.
+Ids, the `session` field, delivery, and the local-only limits are in
+[Architecture](docs/architecture.md).

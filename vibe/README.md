@@ -1,9 +1,10 @@
 # vibe-maki-peer
 
-The Vibe half of `maki-peer`. It speaks the same spool protocol as the Maki
-plugin, the OpenCode plugin, and the Grok plugin in this repository, so the
-four hosts discover each other and pass observations through one shared
-directory.
+The Vibe half of [maki-peer](../README.md). It speaks the same spool protocol
+as the [Maki](../README.md#maki), [OpenCode](../opencode/README.md), and
+[Grok](../grok/README.md) plugins, so the four hosts discover each other and
+pass observations through one shared directory. The layout is
+[Architecture](../docs/architecture.md).
 
 Vibe loads this directory as an Agent Plugins 1.0 package: a skill, three
 hooks, and an MCP server. The server and the hook logic are TypeScript run by
@@ -16,7 +17,9 @@ id is a hash of the Vibe session id, so a resume keeps the same address.
 
 ## Install
 
-Copy this directory to the user plugin location, then reload Vibe:
+Copy this directory to the user plugin location, or symlink it. Vibe resolves
+the directory before it checks containment, so a symlink of the package
+loads. Then reload Vibe:
 
 ```sh
 git clone https://github.com/lu-zero/maki-peer
@@ -25,12 +28,17 @@ rm -rf ~/.vibe/plugins/maki-peer
 cp -a /absolute/path/to/maki-peer/vibe ~/.vibe/plugins/maki-peer
 ```
 
+```sh
+ln -s /absolute/path/to/maki-peer/vibe ~/.vibe/plugins/maki-peer
+```
+
 Start a new session, or run `/reload` in one that is already open. The skill
 is `peer`. Vibe publishes the tools as `mcp_peer.peer_list`,
 `mcp_peer.peer_send`, and `mcp_peer.peer_broadcast`.
 
-Copying again is how an update lands. Vibe pins the package it bound, so a
-running session keeps the copy it started with until it is reloaded.
+Vibe pins the tree it bound, so a running session keeps that tree until
+`/reload` or a new session. Copy again to update a copied install. A symlink
+already points at the clone, and the pin still waits for that reload.
 
 ## Verify
 
@@ -90,9 +98,10 @@ or `idle`.
 
 A session id means something only on the host that minted it. A `session`
 field is written only when the receiver is another Vibe session, and it is
-honoured only when `origin.host` is `vibe`. A message from Maki, OpenCode, or
-Grok is delivered to the session that owns the inbox. A Vibe address that
-names a session this host no longer runs is dropped.
+honoured only when `origin.host` is `vibe`. A message from
+[Maki](../README.md#maki), [OpenCode](../opencode/README.md), or
+[Grok](../grok/README.md) is delivered to the session that owns the inbox.
+A Vibe address that names a session this host no longer runs is dropped.
 
 The server learns its session from `PLUGIN_DATA`, which Vibe sets to
 `<session storage>/plugins/data/<session-id>/maki-peer` for a bound session.
@@ -106,8 +115,9 @@ An idle session does not start a turn, and the end of a turn cannot carry
 mail. Vibe already has two primitives that would close that gap. The internal
 `pre_agent_turn` hook can continue with `user_content`, and
 `session/turn/enqueue` promotes one queued turn when the session is idle.
-Neither is reachable from a plugin. `vibe/upstream-issue.md` is the request
-to expose one of them. This package does not patch Vibe to get there.
+Neither is reachable from a plugin. [upstream-issue.md](upstream-issue.md)
+is the request to expose one of them. This package does not patch Vibe to
+get there.
 
 ## Develop
 

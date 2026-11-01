@@ -1,8 +1,10 @@
 # opencode-maki-peer
 
-The OpenCode half of `maki-peer`. It speaks the same spool protocol as the
-Maki plugin in this repository, so both hosts discover each other and pass
-observations through one shared directory.
+The OpenCode half of [maki-peer](../README.md). It speaks the same spool
+protocol as the [Maki](../README.md#maki), [Grok](../grok/README.md), and
+[Vibe](../vibe/README.md) plugins, so the hosts discover each other and pass
+observations through one shared directory. The layout is
+[Architecture](../docs/architecture.md).
 
 One peer is registered per OpenCode session, not per process. An OpenCode
 service is shared across projects and outlives any one TUI, so a process-level
@@ -81,8 +83,9 @@ A session id means something only on the host that minted it. The rule is
 symmetric and both halves ship here:
 
 - A record carries `origin.host`. On receipt, a `session` field is honoured
-  only when `origin.host` matches this host. A Maki record addressed to an
-  OpenCode session is delivered to the session that owns the inbox instead.
+  only when `origin.host` matches this host. A [Maki](../README.md#maki)
+  record addressed to an OpenCode session is delivered to the session that
+  owns the inbox instead.
 - An address from this host naming a session this host no longer runs is
   dropped and logged, because no later tick can deliver it.
 - The sender omits `session` entirely when the receiver is another host, so a
