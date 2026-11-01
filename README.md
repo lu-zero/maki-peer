@@ -1,8 +1,8 @@
 # maki-peer
 
-Local peer discovery and observation messaging between Maki, OpenCode, and Grok.
+Local peer discovery and observation messaging between Maki, OpenCode, Grok, and Vibe.
 
-This repository holds three plugins that share one spool protocol:
+This repository holds four plugins that share one spool protocol:
 
 - `plugin/` is a standalone Maki plugin. It does not add a Rust API or a
   builtin namespace. It uses the same Lua APIs as other Maki packages,
@@ -11,15 +11,18 @@ This repository holds three plugins that share one spool protocol:
 - `grok/` is the Grok plugin. See `grok/README.md`. Grok loads hooks, a skill,
   and an MCP server. It does not load a TypeScript plugin. The server is
   TypeScript run by bun, so it shares the OpenCode spool code.
+- `vibe/` is the Vibe plugin. See `vibe/README.md`. Vibe loads an Agent
+  Plugins package: hooks, a skill, and an MCP server. The server is the same
+  kind of bun program, with its own copy of the spool code.
 
-All three write presence records and message files into the same per-user
+All four write presence records and message files into the same per-user
 directory, so a message from one lands in a session of another.
 
-The three plugins are meant to read the same. They register the same tool
+The four plugins are meant to read the same. They register the same tool
 names, and the descriptions, the message format and the text sanitising are
 meant to be identical, because a model that has learned one set uses the
 others the same way and an agent should not be able to tell which host it is
-talking to. A test compares the descriptions across the three files, so a
+talking to. A test compares the descriptions across the four files, so a
 change to one of them alone fails the build.
 
 ## Install
@@ -80,6 +83,21 @@ grok plugin install /absolute/path/to/maki-peer/grok --trust
 Start a new session after installing. A live session shows up as
 `owners/gk-*.json` in the spool. `grok/README.md` has the details.
 
+### Vibe
+
+bun must be on `PATH`, or installed at `~/.bun/bin/bun`. From a clone:
+
+```sh
+mkdir -p ~/.vibe/plugins
+rm -rf ~/.vibe/plugins/maki-peer
+cp -a /absolute/path/to/maki-peer/vibe ~/.vibe/plugins/maki-peer
+```
+
+Start a new session, or run `/reload`. A live session shows up as
+`owners/vb-*.json` in the spool. `vibe/README.md` has the details. Once Vibe
+runs the plugin hooks, mail is appended to the next tool result. Vibe 3.0.4
+does. An idle session does not start a turn to read it.
+
 ## Use
 
 The plugin registers each live Maki session in a per-user state directory and
@@ -101,7 +119,7 @@ Commands:
 Tools:
 
 - `peer_list` lists every live local session, with its model, status, and abbreviated id.
-  It also lists OpenCode and Grok instances once those plugins are installed.
+  It also lists OpenCode, Grok, and Vibe instances once those plugins are installed.
 - `peer_send` sends an observation or status to one named peer, on either host.
 - `peer_broadcast` sends one observation to every active peer.
 - `peer_spawn` starts an independent Maki process in a detached `tmux` session,
@@ -118,11 +136,14 @@ that is where an agent reads it.
 The OpenCode side registers the same tool names under the `peer` namespace.
 The Grok side registers the same tools on an MCP server named `peer`, so the
 model sees `peer__peer_list`, `peer__peer_send`, and `peer__peer_broadcast`.
+The Vibe side publishes them as `mcp_peer.peer_list`, `mcp_peer.peer_send`,
+and `mcp_peer.peer_broadcast`.
 A model that has learned one set uses the others the same way. The `/peer`
 command exists only on the Maki side: an OpenCode command can only produce a
 model turn, and a peer list is reference rather than a prompt, so that host
 deliberately ships none. `peer_spawn` is Maki only; an OpenCode server plugin
-has no sanctioned way to start a process, and the Grok plugin has none either.
+has no sanctioned way to start a process, and the Grok and Vibe plugins have
+none either.
 
 Example:
 
@@ -184,8 +205,8 @@ a title and capped at forty eight runes. Each host prints it in front of the
 body. Maki also draws it in the transcript step.
 
 Each peer names itself from its own peer id, `maki-Cg68nHqT`,
-`opencode-072f2841`, and `grok-072f2841`, so a name is stable and needs no
-configuration. A maki peer id is the session's storage id, so the name is the
+`opencode-072f2841`, `grok-072f2841`, and `vibe-072f2841`, so a name is stable
+and needs no configuration. A maki peer id is the session's storage id, so the name is the
 first eight characters of that id: stable across reloads, like the OpenCode
 name and the Grok name. The session
 title travels alongside as an optional `title` field, which is what you set
@@ -228,7 +249,7 @@ twice. On OpenCode one record can be polled by more than one process, since
 the shared server and a session's own client both load the plugin, so a
 delivery is made exclusive by a claim: the message is renamed before it is
 read, an expired claim goes back to the queue, and a poller that died cannot
-wedge an inbox. Grok uses that same claim.
+wedge an inbox. Grok and Vibe use that same claim.
 
 Both fields are authoritative for what they report. The list tags only the
 exceptions: `(you)` marks the session that asked, and `(other dir)` marks a
@@ -241,9 +262,10 @@ A send to a handle that no longer exists is refused with the list of live
 peers. A Maki peer id is the session's storage id, so it survives a reload: the
 next process resumes the session under the same id and the address keeps
 working, and so do the record and any queued mail, which the next process takes
-over instead of rebuilding. An OpenCode peer id is a hash of its session, and a
-Grok peer id is a hash of its session with a `gk-` prefix. Both behave the same
-way. A handle goes stale only when the session itself is gone, and the list in
+over instead of rebuilding. An OpenCode peer id is a hash of its session, a
+Grok peer id is a hash of its session with a `gk-` prefix, and a Vibe peer id
+is a hash of its session with a `vb-` prefix. They behave the same way. A
+handle goes stale only when the session itself is gone, and the list in
 the refusal is how a replacement is found.
 
 A message addressed to a session that is no longer live is dropped and logged
@@ -273,6 +295,14 @@ delivered at the next turn boundary, after a tool call or when a turn stops.
 Mail that arrives while the session is idle waits for the next turn. A helper
 process refreshes presence during a long tool call. `grok/README.md` has the
 details.
+
+On the Vibe side a session becomes a peer when its MCP server starts. Once
+Vibe runs the plugin hooks, mail is appended to the next tool result. Vibe
+2.26 pins those hooks and does not run them. Vibe 3.0.4 does. A turn that
+calls no tool does not see the mail, and an idle session does not start a
+turn, so a message can expire after 300 seconds. `vibe/README.md` has the
+details, and `vibe/upstream-issue.md` asks Vibe for a hook that can carry
+text into an idle turn.
 
 One difference between the halves was known and is now fixed. The Maki half
 stripped control characters by byte, so it kept U+0080 to U+009F, and the

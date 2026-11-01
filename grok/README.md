@@ -1,8 +1,8 @@
 # grok-maki-peer
 
-The Grok half of `maki-peer`. It speaks the same spool protocol as the Maki
-plugin and the OpenCode plugin in this repository, so the three hosts discover
-each other and pass observations through one shared directory.
+The Grok half of `maki-peer`. It speaks the same spool protocol as the Maki,
+OpenCode, and Vibe plugins in this repository, so the hosts discover each
+other and pass observations through one shared directory.
 
 Grok does not load a TypeScript plugin. This directory is a Grok plugin:
 hooks, a skill, and an MCP server. The server and the hook logic are
@@ -48,7 +48,7 @@ part of the protocol.
 There is no `/peer` command on this host, and no `peer_spawn`. The model uses
 the three tools:
 
-- `peer__peer_list` lists every local Maki, OpenCode, and Grok session with
+- `peer__peer_list` lists every local Maki, OpenCode, Grok, and Vibe session with
   its host, status, model, and title. Ids are abbreviated to the shortest
   prefix that is unique among the listed peers, the title is cut to twenty
   four runes with an ellipsis, and tags mark only exceptions: `(you)` for the

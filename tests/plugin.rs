@@ -132,6 +132,7 @@ fn the_halves_declare_the_same_tool_descriptions() {
     let ts = std::fs::read_to_string(root.join("opencode/src/index.ts"))
         .expect("opencode plugin source");
     let grok = std::fs::read_to_string(root.join("grok/src/mcp.ts")).expect("grok plugin source");
+    let vibe = std::fs::read_to_string(root.join("vibe/src/mcp.ts")).expect("vibe plugin source");
 
     for (tool, prefix) in [
         (
@@ -143,6 +144,7 @@ fn the_halves_declare_the_same_tool_descriptions() {
         let on_maki = description(&lua, "description = \"", prefix);
         let on_opencode = description(&ts, "description: \"", prefix);
         let on_grok = description(&grok, "description: \"", prefix);
+        let on_vibe = description(&vibe, "description: \"", prefix);
         assert_eq!(
             on_maki, on_opencode,
             "the {tool} description differs between maki and opencode"
@@ -150,6 +152,10 @@ fn the_halves_declare_the_same_tool_descriptions() {
         assert_eq!(
             on_maki, on_grok,
             "the {tool} description differs between maki and grok"
+        );
+        assert_eq!(
+            on_maki, on_vibe,
+            "the {tool} description differs between maki and vibe"
         );
     }
 }

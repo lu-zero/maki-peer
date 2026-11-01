@@ -1,0 +1,17 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "maki-peer",
+  "version": "0.1.0",
+  "description": "Local peer discovery and observation messaging with Maki, OpenCode, and Grok.",
+  "author": {
+    "name": "Luca Barbato"
+  },
+  "repository": "https://github.com/lu-zero/maki-peer",
+  "license": "MIT",
+  "extensions": {
+    "ai.mistral.vibe": {
+      "schemaVersion": 1,
+      "toolNamespace": "peer"
+    }
+  }
+}

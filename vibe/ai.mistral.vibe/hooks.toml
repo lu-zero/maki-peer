@@ -1,0 +1,17 @@
+[[hooks]]
+name = "peer-pre-tool"
+type = "pre_tool"
+command = "sh ./bin/hook"
+timeout = 20
+
+[[hooks]]
+name = "peer-post-tool"
+type = "post_tool"
+command = "sh ./bin/hook"
+timeout = 20
+
+[[hooks]]
+name = "peer-post-agent"
+type = "post_agent"
+command = "sh ./bin/hook"
+timeout = 20

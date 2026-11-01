@@ -1,6 +1,6 @@
 ---
 name: peer
-description: Discover local Maki, OpenCode, and Grok sessions on this machine and send an observation to one of them. Use when work needs another agent on this machine, or when a peer message arrives.
+description: Discover local Maki, OpenCode, Grok, and Vibe sessions on this machine and send an observation to one of them. Use when work needs another agent on this machine, or when a peer message arrives.
 ---
 
 The peer tools are `peer__peer_list`, `peer__peer_send`, and `peer__peer_broadcast`.

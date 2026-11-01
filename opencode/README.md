@@ -59,8 +59,8 @@ stale within about fifteen seconds instead.
 There is no `/peer` command on this host. The model controls the feature
 through its tools:
 
-- `peer_list` lists every local Maki and OpenCode instance with its host,
-  status, model, and title. Ids are abbreviated to the shortest prefix that is
+- `peer_list` lists every local Maki, OpenCode, Grok, and Vibe session with
+  its host, status, model, and title. Ids are abbreviated to the shortest prefix that is
   unique among the listed peers, the title is cut to twenty four runes with an
   ellipsis, and tags mark only exceptions: `(you)` for the session that asked,
   `(other dir)` for a peer in a different directory.
