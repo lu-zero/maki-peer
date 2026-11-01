@@ -842,6 +842,9 @@ local function deliver_message(path, message, inbox_session_id)
   local delivered, notify_err = maki.session.notify(text, {
     session = target,
     wake = message.wake == true,
+    -- The transcript line. The model still reads `text`; this is the one
+    -- line a later turn draws when it accepts the observation.
+    display = body_line(message),
   })
   if not delivered then
     if addressed and type(notify_err) == "string" and notify_err:sub(1, #NOT_LIVE_ERR) == NOT_LIVE_ERR then
