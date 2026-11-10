@@ -10,9 +10,11 @@ drifts.
 
 ## Demo
 
-[![asciicast](https://asciinema.org/a/7uIuWwyTtwsFVhDp.svg)](https://asciinema.org/a/7uIuWwyTtwsFVhDp)
+[![asciicast](https://github.com/user-attachments/assets/4ebb42a3-81b7-4175-a0ba-8ac948f2d10c)](https://asciinema.org/a/1270698)
 
-Watch [four hosts, one directory](https://asciinema.org/a/7uIuWwyTtwsFVhDp).
+Watch [four hosts, one directory](https://asciinema.org/a/1270698). The preview
+is a GitHub user attachment because the image proxy cannot fetch asciinema.org
+right now.
 Maki, Vibe, OpenCode, and Grok exchange notes in `~/Sources/maki-peer`. The
 broadcast is `same_dir_only`. A peer outside that directory is listed as
 `(other dir)` and receives nothing.
