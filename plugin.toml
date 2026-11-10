@@ -5,3 +5,4 @@ fs_read = true
 fs_write = true
 run = true
 session_write = true
+agent = true

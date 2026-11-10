@@ -46,6 +46,29 @@ fn plugin_host(root: &Path) -> (Arc<ToolRegistry>, PluginHost) {
     (registry, host)
 }
 
+/// The grants a local pack really runs with: what its own plugin.toml asks
+/// for, deny by default the way the pack loader reads a manifest. Loading
+/// with `trusted()` would hide a capability the manifest forgot, which is
+/// how a wake delivery can pass here and fail in the field.
+fn manifest_permissions() -> PluginPermissions {
+    let manifest = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("plugin.toml"))
+        .expect("plugin.toml should be readable");
+    let mut section = "";
+    let mut names = Vec::new();
+    for line in manifest.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            section = line;
+        } else if section == "[permissions]"
+            && let Some((key, value)) = line.split_once('=')
+            && value.trim() == "true"
+        {
+            names.push(key.trim());
+        }
+    }
+    PluginPermissions::from_approved(names)
+}
+
 /// Answer `maki.model.get` roundtrips the way the UI event loop would, and
 /// forward every other action for the assertions to observe.
 fn serve_ui_actions(rx: flume::Receiver<UiAction>, title: &str) -> mpsc::Receiver<UiAction> {
@@ -1786,6 +1809,55 @@ fn a_received_wake_flag_wakes_the_session() {
         assert!(
             Instant::now() < deadline,
             "a wake message should set the mailbox wake flag"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    drop(host);
+}
+
+#[test]
+fn a_wake_message_wakes_under_the_manifests_own_grants() {
+    let (_temp, state) = common::isolated_state();
+    let registry = Arc::new(ToolRegistry::new());
+    let host = PluginHost::new(Arc::clone(&registry)).unwrap();
+    host.load_package(
+        PLUGIN_NAME,
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+        manifest_permissions(),
+        Default::default(),
+    )
+    .unwrap();
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    let live = MakiId::generate();
+    let mailbox = SessionMailbox::register(live);
+    host.event_handle().fire_autocmd(
+        "SessionStatusChanged",
+        json!({ "session_id": live.to_string(), "status": "idle" }),
+    );
+
+    let mut message = inbound(&id, "wake up", Some(&live.to_string()), Some("maki"));
+    message["wake"] = json!(true);
+    write_inbound(&state, &id, message);
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let woken = mailbox.claim_wake();
+        if let Some(first) = woken.first() {
+            let text = first
+                .user_text()
+                .expect("peer message should be an observation");
+            assert!(text.contains("wake up"), "got: {text}");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "a wake message must wake under the permissions plugin.toml grants"
         );
         std::thread::sleep(Duration::from_millis(20));
     }
