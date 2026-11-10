@@ -82,6 +82,17 @@ describe("presence", () => {
     expect((await ownerOf(box.spool, box.sessionId))?.status).toBe("idle")
   })
 
+  test("pre_agent marks working and post_agent marks idle", async () => {
+    const box = layout()
+    expect(await handleHook(event("pre_agent", box.sessionId, "/work/app"), {
+      spoolRoot: box.spoolRoot,
+      pluginData: box.pluginData,
+    })).toBe("")
+    const working = await ownerOf(box.spool, box.sessionId)
+    expect(working?.status).toBe("working")
+    expect(working?.cwd).toBe("/work/app")
+  })
+
   test("the server publishes while it runs and removes the record when stdin closes", async () => {
     const box = layout()
     let release = () => {}
@@ -153,6 +164,43 @@ describe("delivery", () => {
       "[peer maki-aaaaaaaa maki-aaaaaaaa] ci: the build failed",
     )
     expect(await box.spool.read(join(box.spool.inboxPath(peerId), `${id}.json`))).toBeUndefined()
+  })
+
+  test("pre_agent appends mail at a turn start, including from idle, and post_tool finds nothing left", async () => {
+    const box = layout()
+    const peerId = peerIdOf(box.sessionId)
+    const id = `${peerId}-turnstart`
+    await box.spool.prepare()
+    await box.spool.ensureInbox(peerId)
+    await box.spool.write(
+      join(box.spool.inboxPath(peerId), `${id}.json`),
+      messageRecord({
+        id,
+        from: "maki-aaaaaaaa",
+        fromName: "maki-aaaaaaaa",
+        to: peerId,
+        body: "the build failed",
+        kind: "observation",
+        topic: "ci",
+        host: "maki",
+      }),
+    )
+    // An idle session starts a turn: pre_agent runs before any tool call does.
+    const reply = await handleHook(event("pre_agent", box.sessionId, "/work"), {
+      spoolRoot: box.spoolRoot,
+      pluginData: box.pluginData,
+    })
+    const parsed = JSON.parse(reply) as { hook_specific_output: { additional_context: string } }
+    expect(parsed.hook_specific_output.additional_context).toBe(
+      "[peer maki-aaaaaaaa maki-aaaaaaaa] ci: the build failed",
+    )
+    expect(await box.spool.read(join(box.spool.inboxPath(peerId), `${id}.json`))).toBeUndefined()
+
+    const again = await handleHook(event("post_tool", box.sessionId), {
+      spoolRoot: box.spoolRoot,
+      pluginData: box.pluginData,
+    })
+    expect(again).toBe("")
   })
 
   test("a vibe address for a session this process does not own is dropped", async () => {

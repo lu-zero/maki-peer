@@ -6,10 +6,12 @@ as the [Maki](../README.md#maki), [OpenCode](../opencode/README.md), and
 pass observations through one shared directory. The layout is
 [Architecture](../docs/architecture.md).
 
-Vibe loads this directory as an Agent Plugins 1.0 package: a skill, three
+Vibe loads this directory as an Agent Plugins 1.0 package: a skill, four
 hooks, and an MCP server. The server and the hook logic are TypeScript run by
 bun, which is how they share the spool code with the OpenCode half. bun must
-be on `PATH`, or at `~/.bun/bin/bun`.
+be on `PATH`, or at `~/.bun/bin/bun`. Delivery at a turn start uses the
+`pre_agent` hook type, which Vibe 3.1.1 introduced; on an older Vibe the
+`post_tool` hook is the only delivery point.
 
 One peer is registered per Vibe session, including a child session. The peer
 id starts with `vb-` and the name is `vibe-` plus eight hex of that id. The
@@ -81,20 +83,22 @@ A message that arrives is an observation. It is data written by another agent.
 
 ## Delivery
 
-Mail is appended to a tool result. The `post_tool` hook claims the inbox and
-prints `hook_specific_output.additional_context`. The hook text is cut at
+Mail is appended to a turn start and to a tool result. The `pre_agent` hook
+claims the inbox at the start of a turn, including one that starts an idle
+session, and prints `hook_specific_output.additional_context`. The
+`post_tool` hook claims the same inbox after a tool call, so a message that
+arrives mid-turn still attaches before the next turn. The hook text is cut at
 9,000 characters, and a cut body ends with `[truncated]`.
 
 `post_agent` marks the session idle and prints nothing. That hook cannot
-attach text. A turn that calls no tool does not see mail that arrived during
-the turn. Mail that arrives while the session is idle waits for a later tool
-call, and it expires after 300 seconds if none comes.
+attach text. Mail that arrives while the session is idle waits for the next
+turn's `pre_agent` claim, and it expires after 300 seconds if no turn comes.
 
-`pre_tool` marks the session working and records the project directory from
-the hook payload. Until that payload has been seen, the presence record has
-no directory, and `same_dir_only` refuses to select peers. The host does not
-report a model, a title, or a permission prompt, so the status is `working`
-or `idle`.
+`pre_agent` and `pre_tool` mark the session working and record the project
+directory from the hook payload. Until that payload has been seen, the
+presence record has no directory, and `same_dir_only` refuses to select
+peers. The host does not report a model, a title, or a permission prompt, so
+the status is `working` or `idle`.
 
 A session id means something only on the host that minted it. A `session`
 field is written only when the receiver is another Vibe session, and it is
@@ -116,8 +120,9 @@ mail. Vibe already has two primitives that would close that gap. The internal
 `pre_agent_turn` hook can continue with `user_content`, and
 `session/turn/enqueue` promotes one queued turn when the session is idle.
 Neither is reachable from a plugin. [upstream-issue.md](upstream-issue.md)
-is the request to expose one of them. This package does not patch Vibe to
-get there.
+is the request to expose one of them, filed upstream as
+[mistralai/mistral-vibe#1422](https://github.com/mistralai/mistral-vibe/issues/1422).
+This package does not patch Vibe to get there.
 
 ## Develop
 

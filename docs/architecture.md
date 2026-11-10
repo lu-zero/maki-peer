@@ -81,12 +81,14 @@ call, or as context when a turn stops. Mail that arrives while the session
 is idle waits for the next turn. The hook text is cut at 9,000 characters.
 Details are in the [Grok](../grok/README.md) page.
 
-Vibe appends the note to the next tool result. A turn that calls no tool
-does not see it. An idle session does not start a turn, so a message can
+Vibe appends the note at a turn start and to the next tool result. The
+`pre_agent` hook claims the inbox when a turn begins, including one that
+starts an idle session, and `post_tool` claims it after a tool call. Mail
+that arrives while the session is idle waits for the next turn and can
 expire after 300 seconds. The hook text is cut at 9,000 characters. Details
-and the request for an idle-turn hook are in the
-[Vibe](../vibe/README.md) page and in
-[vibe/upstream-issue.md](../vibe/upstream-issue.md).
+are in the [Vibe](../vibe/README.md) page and in
+[vibe/upstream-issue.md](../vibe/upstream-issue.md), the request the
+`pre_agent` turn-start hook answers.
 
 Records from another host are sanitised on the way in. A status outside
 `idle`, `working`, and `needs_input` reads as idle. The shared examples are

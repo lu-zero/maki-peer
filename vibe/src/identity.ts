@@ -7,9 +7,9 @@ export const ID_PREFIX = "vb"
 export const LABEL = "vibe"
 
 /**
- * How much of a delivery the post_tool hook will attach. Vibe accepts a
- * megabyte of hook stdout. The cap here matches the other host that attaches
- * mail to a tool result, so a burst reads the same length on both.
+ * How much of a delivery a hook will attach. Vibe accepts a megabyte of
+ * hook stdout. The cap here matches the other host that attaches mail to a
+ * tool result, so a burst reads the same length on both.
  */
 export const MAX_DELIVERY_CHARS = 9000
 

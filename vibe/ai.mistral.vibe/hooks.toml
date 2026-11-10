@@ -1,4 +1,10 @@
 [[hooks]]
+name = "peer-pre-agent"
+type = "pre_agent"
+command = "sh ./bin/hook"
+timeout = 20
+
+[[hooks]]
 name = "peer-pre-tool"
 type = "pre_tool"
 command = "sh ./bin/hook"

@@ -18,17 +18,19 @@ function text(value: unknown): string | undefined {
 /**
  * Apply one Vibe hook and return the stdout the host should see.
  *
- * `pre_tool` marks the session working. `post_tool` is the only point that
- * can attach mail, as `additional_context` on the tool result. `post_agent`
- * marks the session idle and prints nothing: a deny would ask for a retry,
- * and the host ignores any other text.
+ * `pre_agent` marks the session working and is the point mail lands at a turn
+ * start, including one that starts an idle session. `pre_tool` marks the
+ * session working. `post_tool` claims mail after a tool call, so a message
+ * that arrives mid-turn still attaches. `post_agent` marks the session idle
+ * and prints nothing: a deny would ask for a retry, and the host ignores any
+ * other text.
  */
 export async function handleHook(event: unknown, paths: HookPaths): Promise<string> {
   const body = record(event)
   const name = text(body.hook_event_name)
   const sessionId = sessionForHook(paths.pluginData, text(body.session_id))
   if (!sessionId || !paths.pluginData) return ""
-  if (name !== "pre_tool" && name !== "post_tool" && name !== "post_agent") return ""
+  if (name !== "pre_agent" && name !== "pre_tool" && name !== "post_tool" && name !== "post_agent") return ""
   const pluginData = paths.pluginData
 
   return withStateLock(pluginData, async () => {
@@ -40,7 +42,7 @@ export async function handleHook(event: unknown, paths: HookPaths): Promise<stri
     if (!state) return ""
     const spool = new Spool(paths.spoolRoot)
     await publish(spool, state)
-    if (name !== "post_tool") return ""
+    if (name !== "post_tool" && name !== "pre_agent") return ""
     return takeMail(spool, sessionId)
   })
 }

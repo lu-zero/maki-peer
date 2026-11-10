@@ -5,10 +5,11 @@ import { MAX_DELIVERY_CHARS, ORIGIN_HOST } from "./identity.ts"
 import { peerIdOf } from "./presence.ts"
 
 /**
- * Claim this session's inbox and return the post_tool stdout that carries it.
+ * Claim this session's inbox and return the hook stdout that carries it.
  *
- * Empty means there was nothing to add. post_agent cannot carry this text:
- * its stdout can only accept the turn or ask for a retry.
+ * The pre_agent and post_tool hooks return it as `additional_context`; either
+ * may claim. Empty means there was nothing to add. post_agent cannot carry
+ * this text: its stdout can only accept the turn or ask for a retry.
  */
 export async function takeMail(spool: Spool, sessionId: string): Promise<string> {
   const lines: string[] = []
