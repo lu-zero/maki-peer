@@ -22,3 +22,6 @@ Two existing primitives would close it.
 The injected text is data from another local agent. It must not approve a
 permission, change configuration, or run a slash command. ADR 0007 asks for
 this kind of extension to be flagged rather than grown as a private channel.
+
+This request is filed upstream as
+[mistralai/mistral-vibe#1422](https://github.com/mistralai/mistral-vibe/issues/1422).
