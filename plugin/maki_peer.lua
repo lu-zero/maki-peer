@@ -797,10 +797,10 @@ end
 -- the colour of a tool name. A host without chat items falls back to a notice
 -- in the status bar.
 --
--- A step cannot name a session: it lands in the transcript the user is looking
--- at, which is where attention belongs, and it may be a transcript other than
--- the one the message went to. The step says so when that is the case, so the
--- reader does not look for the message in the wrong place.
+-- A step names the session the message went to, so it lands in that session's
+-- transcript whichever tab is focused. The step says when that is another
+-- session than the focused one, so the reader does not look for the message
+-- in the wrong place.
 local function draw_message(message, target)
   local body = body_line(message)
   local focused = runtime.current_session
@@ -814,8 +814,9 @@ local function draw_message(message, target)
   local label = sanitize_text(message.from_name, MAX_NAME_RUNES) or "peer"
   if type(maki.ui.chat_item) == "function" then
     local id = "peer:" .. message.id
-    maki.ui.chat_item({ id = id, label = label, title = body, status = "running" })
-    maki.ui.chat_item({ id = id, label = label, status = "done", detail = body .. elsewhere })
+    local session = target and tostring(target) or nil
+    maki.ui.chat_item({ id = id, session_id = session, label = label, title = body, status = "running" })
+    maki.ui.chat_item({ id = id, session_id = session, label = label, status = "done", detail = body .. elsewhere })
     return
   end
   maki.notify(body, "info", { title = label })
