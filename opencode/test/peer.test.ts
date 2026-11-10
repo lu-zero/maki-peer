@@ -870,6 +870,45 @@ test("a message without a topic has no topic field at all", () => {
   expect(parseMessage(record, "oc-peer")?.topic).toBe(undefined)
 })
 
+test("a wake flag survives a round trip through the record", () => {
+  const record = messageRecord({
+    id: "m1",
+    from: "oc-072f2841ee0e9743",
+    fromName: "opencode-072f2841",
+    to: "oc-peer",
+    body: "ping",
+    kind: "observation",
+    wake: true,
+  })
+  expect(record.wake).toBe(true)
+  expect(parseMessage(record, "oc-peer")?.wake).toBe(true)
+})
+
+test("a message without wake has no wake field at all", () => {
+  const record = messageRecord({
+    id: "m1",
+    from: "oc-072f2841ee0e9743",
+    fromName: "opencode-072f2841",
+    to: "oc-peer",
+    body: "ping",
+    kind: "observation",
+  })
+  expect("wake" in record).toBe(false)
+  expect(parseMessage(record, "oc-peer")?.wake).toBe(undefined)
+})
+
+test("a non-boolean wake is not a message", () => {
+  const record = messageRecord({
+    id: "m1",
+    from: "oc-072f2841ee0e9743",
+    fromName: "opencode-072f2841",
+    to: "oc-peer",
+    body: "ping",
+    kind: "observation",
+  })
+  expect(parseMessage({ ...record, wake: "yes" }, "oc-peer")).toBe(undefined)
+})
+
 describe("mark and sweep", () => {
   const now = 1_700_000_000
   const write = async (spool: Spool, id: string, lastSeen: number, name = `maki-${id}`) => {

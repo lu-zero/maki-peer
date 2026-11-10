@@ -41,7 +41,7 @@ type Options = {
 }
 
 /** Tool executors receive `unknown`, so narrow the fields we rely on. */
-function readArgs(input: unknown): { peer_id?: string; message?: string; topic?: string; session?: string; kind?: string; same_dir_only?: boolean } {
+function readArgs(input: unknown): { peer_id?: string; message?: string; topic?: string; session?: string; kind?: string; same_dir_only?: boolean; wake?: boolean } {
   if (typeof input !== "object" || input === null) return {}
   const record = input as Record<string, unknown>
   const text = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value : undefined)
@@ -52,6 +52,7 @@ function readArgs(input: unknown): { peer_id?: string; message?: string; topic?:
     session: text(record.session),
     kind: text(record.kind),
     same_dir_only: record.same_dir_only === true,
+    wake: record.wake === true,
   }
 }
 
@@ -269,6 +270,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
       fromSessionID: string,
       session?: string,
       topic?: string,
+      wake?: boolean,
     ): Promise<{ id: string; peer: string } | { error: string }> => {
       const encoded = encodeBody(body)
       if (encoded === undefined) return { error: "message body is blank or too large" }
@@ -289,6 +291,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
           kind,
           ...(topic ? { topic } : {}),
           ...(sameHost && session ? { session } : {}),
+          ...(wake ? { wake } : {}),
         }),
       )
       return { id, peer: target.id }
@@ -313,6 +316,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
             topic: { type: "string", description: "Short subject of the message, shown before the body" },
             session: { type: "string", description: "Optional session id on the receiving host" },
             kind: { type: "string", enum: ["observation", "status"] },
+            wake: { type: "boolean", description: "Wake the receiving session if it is idle, so the message starts a turn instead of waiting" },
           },
           required: ["peer_id", "message"],
           additionalProperties: false,
@@ -324,7 +328,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
           const kind = kindOf(args.kind)
           const resolved = resolvePeer(await registry.records(), args.peer_id, undefined, ownID(context.sessionID))
           if ("error" in resolved) throw new Error(resolved.error)
-          const result = await queue(resolved.peer, args.message, kind, context.sessionID, args.session, args.topic)
+          const result = await queue(resolved.peer, args.message, kind, context.sessionID, args.session, args.topic, args.wake)
           if ("error" in result) throw new Error(result.error)
           return { content: `Queued peer message ${result.id} for ${result.peer}.` }
         },
@@ -339,6 +343,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
             topic: { type: "string", description: "Short subject of the message, shown before the body" },
             session: { type: "string", description: "Optional session id on the receiving host" },
             kind: { type: "string", enum: ["observation", "status"] },
+            wake: { type: "boolean", description: "Wake the receiving session if it is idle, so the message starts a turn instead of waiting" },
             same_dir_only: {
               type: "boolean",
               description: "Only peers reporting the same directory, where this host reports one",
@@ -355,7 +360,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
           const targets = await broadcastTargets(context.sessionID, sameDirOnly)
           let queued = 0
           for (const peer of targets) {
-            const result = await queue(peer, args.message, kind, context.sessionID, args.session, args.topic)
+            const result = await queue(peer, args.message, kind, context.sessionID, args.session, args.topic, args.wake)
             if (!("error" in result)) queued++
           }
           // The count is the count of messages that were really queued, and

@@ -20,6 +20,7 @@ const TOOLS = [
         topic: { type: "string", description: "Short subject of the message, shown before the body" },
         session: { type: "string", description: "Optional session id on the receiving host" },
         kind: { type: "string", enum: ["observation", "status"] },
+        wake: { type: "boolean", description: "Wake the receiving session if it is idle, so the message starts a turn instead of waiting" },
       },
       required: ["peer_id", "message"],
       additionalProperties: false,
@@ -35,6 +36,7 @@ const TOOLS = [
         topic: { type: "string", description: "Short subject of the message, shown before the body" },
         session: { type: "string", description: "Optional session id on the receiving host" },
         kind: { type: "string", enum: ["observation", "status"] },
+        wake: { type: "boolean", description: "Wake the receiving session if it is idle, so the message starts a turn instead of waiting" },
         same_dir_only: {
           type: "boolean",
           description: "Only peers reporting the same directory, where this host reports one",

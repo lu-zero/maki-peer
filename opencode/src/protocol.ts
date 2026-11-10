@@ -94,6 +94,7 @@ export type PeerMessage = {
   body: string
   topic?: string
   session?: string
+  wake?: boolean
   origin?: { host?: unknown }
   created: number
   expires: number
@@ -195,6 +196,7 @@ export function parseMessage(value: unknown, to: string): PeerMessage | undefine
   if (value.kind !== "observation" && value.kind !== "status") return undefined
   if (value.session !== undefined && typeof value.session !== "string") return undefined
   if (value.topic !== undefined && typeof value.topic !== "string") return undefined
+  if (value.wake !== undefined && typeof value.wake !== "boolean") return undefined
   const created = finite(value.created)
   const expires = finite(value.expires)
   if (created === undefined || expires === undefined) return undefined
@@ -208,6 +210,7 @@ export function parseMessage(value: unknown, to: string): PeerMessage | undefine
     body: value.body,
     ...(typeof value.topic === "string" ? { topic: value.topic } : {}),
     ...(typeof value.session === "string" ? { session: value.session } : {}),
+    ...(value.wake === true ? { wake: true } : {}),
     ...(isRecord(value.origin) ? { origin: { host: value.origin.host } } : {}),
     created,
     expires,

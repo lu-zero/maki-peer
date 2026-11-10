@@ -659,6 +659,7 @@ export function messageRecord(input: {
   session?: string
   ttlSeconds?: number
   host?: string
+  wake?: boolean
 }): Record<string, unknown> {
   const now = Math.floor(Date.now() / 1000)
   const ttl = Math.max(1, Math.min(Math.floor(input.ttlSeconds ?? MESSAGE_TTL_SECONDS), MESSAGE_TTL_SECONDS))
@@ -674,6 +675,7 @@ export function messageRecord(input: {
     // something a reader can print. A message without one is still a message.
     ...(topicOf(input.topic) ? { topic: topicOf(input.topic) } : {}),
     ...(input.session ? { session: input.session } : {}),
+    ...(input.wake === true ? { wake: true } : {}),
     origin: { host: input.host ?? ORIGIN_HOST },
     created: now,
     expires: now + ttl,

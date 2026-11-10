@@ -273,6 +273,46 @@ describe("tools", () => {
     expect(message.session).toBe(other.sessionId)
   })
 
+  test("a wake flag is written into the queued record only when set", async () => {
+    const box = layout()
+    const now = Math.floor(Date.now() / 1000)
+    await box.spool.prepare()
+    await box.spool.write(box.spool.ownerPath("maki-peerone"), {
+      protocol: 1,
+      id: "maki-peerone",
+      name: "maki-peerone",
+      started: now,
+      last_seen: now,
+      status: "idle",
+      cwd: "/work/app",
+    })
+    await handleHook(event("pre_tool", box.sessionId, "/work/app"), {
+      spoolRoot: box.spoolRoot,
+      pluginData: box.pluginData,
+    })
+
+    const woken = await callTool(box.spool, box.pluginData, "peer_send", {
+      peer_id: "maki-peerone",
+      message: "wake up",
+      wake: true,
+    })
+    expect(woken.error).toBe(false)
+    const plain = await callTool(box.spool, box.pluginData, "peer_send", {
+      peer_id: "maki-peerone",
+      message: "no wake",
+    })
+    expect(plain.error).toBe(false)
+
+    const inbox = await box.spool.listJson(box.spool.inboxPath("maki-peerone"))
+    expect(inbox.length).toBe(2)
+    const messages = await Promise.all(
+      inbox.map((name) => box.spool.read(name) as Promise<Record<string, unknown>>),
+    )
+    const byBody = new Map(messages.map((m) => [m.body, m]))
+    expect(byBody.get("wake up")?.wake).toBe(true)
+    expect("wake" in (byBody.get("no wake") ?? {})).toBe(false)
+  })
+
   test("same_dir_only waits until a hook has reported a directory", async () => {
     const box = layout()
     const early = await callTool(box.spool, box.pluginData, "peer_broadcast", {

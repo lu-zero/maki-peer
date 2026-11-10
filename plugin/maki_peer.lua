@@ -687,6 +687,10 @@ local function queue_message(owner, target, body, opts)
   if topic then
     message.topic = topic
   end
+  -- Wake only means something as true: a false flag is the absence of one.
+  if opts.wake == true then
+    message.wake = true
+  end
   local written, write_err = write_json(path, message)
   if not written then
     return nil, write_err
@@ -744,6 +748,7 @@ local function valid_message(message, owner_id)
     and type(message.id) == "string"
     and (message.session == nil or type(message.session) == "string")
     and (message.topic == nil or type(message.topic) == "string")
+    and (message.wake == nil or type(message.wake) == "boolean")
 end
 
 -- A topic is the subject of the message: a short label that says what the
@@ -1278,6 +1283,10 @@ maki.api.register_tool({
       topic = { type = "string", description = "Short subject of the message, shown before the body" },
       session = { type = "string", description = "Optional target session id" },
       kind = { type = "string", description = "observation or status" },
+      wake = {
+        type = "boolean",
+        description = "Wake the receiving session if it is idle, so the message starts a turn instead of waiting",
+      },
     },
   },
   handler = function(input, ctx)
@@ -1289,6 +1298,7 @@ maki.api.register_tool({
       session = input.session,
       kind = input.kind,
       topic = input.topic,
+      wake = input.wake == true,
     }, ctx and ctx:session_id())
     if not receipt then
       return { llm_output = err or "peer message was rejected", is_error = true }
@@ -1309,6 +1319,10 @@ maki.api.register_tool({
       session = { type = "string", description = "Optional target session id" },
       kind = { type = "string", description = "observation or status" },
       same_dir_only = { type = "boolean", description = "Only peers reporting the same working directory" },
+      wake = {
+        type = "boolean",
+        description = "Wake the receiving session if it is idle, so the message starts a turn instead of waiting",
+      },
     },
   },
   handler = function(input, ctx)
@@ -1321,6 +1335,7 @@ maki.api.register_tool({
       kind = input.kind,
       topic = input.topic,
       same_dir_only = input.same_dir_only,
+      wake = input.wake == true,
     }, ctx and ctx:session_id())
     if not queued then
       return { llm_output = err or "peer broadcast failed", is_error = true }

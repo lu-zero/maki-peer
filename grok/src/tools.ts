@@ -41,6 +41,7 @@ async function queue(
   kind: "observation" | "status",
   session: string | undefined,
   topic: string | undefined,
+  wake?: boolean,
 ): Promise<{ id: string; peer: string } | { error: string }> {
   const encoded = encodeBody(body)
   if (encoded === undefined) return { error: "message body is blank or too large" }
@@ -59,6 +60,7 @@ async function queue(
       kind,
       ...(topic ? { topic } : {}),
       ...(sameHost && session ? { session } : {}),
+      ...(wake ? { wake } : {}),
       host: ORIGIN_HOST,
     }),
   )
@@ -68,7 +70,7 @@ async function queue(
 export async function peerSend(
   spool: Spool,
   self: SessionState,
-  args: { peer_id?: string; message?: string; topic?: string; session?: string; kind?: string },
+  args: { peer_id?: string; message?: string; topic?: string; session?: string; kind?: string; wake?: boolean },
 ): Promise<ToolResult> {
   if (!args.peer_id) return { text: "peer_id is required", error: true }
   if (!args.message) return { text: "message is required", error: true }
@@ -81,7 +83,7 @@ export async function peerSend(
   const records = await new PeerRegistry(spool, LABEL).records()
   const resolved = resolvePeer(records, args.peer_id, undefined, [peerIdOf(self.sessionId)])
   if ("error" in resolved) return { text: resolved.error, error: true }
-  const result = await queue(spool, self, resolved.peer, args.message, kind, args.session, args.topic)
+  const result = await queue(spool, self, resolved.peer, args.message, kind, args.session, args.topic, args.wake)
   if ("error" in result) return { text: result.error, error: true }
   return { text: `Queued peer message ${result.id} for ${result.peer}.`, error: false }
 }
@@ -89,7 +91,7 @@ export async function peerSend(
 export async function peerBroadcast(
   spool: Spool,
   self: SessionState,
-  args: { message?: string; topic?: string; session?: string; kind?: string; same_dir_only?: boolean },
+  args: { message?: string; topic?: string; session?: string; kind?: string; same_dir_only?: boolean; wake?: boolean },
 ): Promise<ToolResult> {
   if (!args.message) return { text: "message is required", error: true }
   let kind: "observation" | "status"
@@ -102,7 +104,7 @@ export async function peerBroadcast(
   const peers = await livePeers(spool)
   const cwd = args.same_dir_only ? self.cwd : undefined
   const targets = peers.filter((peer) => peer.id !== mine && (!args.same_dir_only || sameTree(peer, { cwd })))
-  const queued = await broadcastTo(targets, (peer) => queue(spool, self, peer, args.message ?? "", kind, args.session, args.topic))
+  const queued = await broadcastTo(targets, (peer) => queue(spool, self, peer, args.message ?? "", kind, args.session, args.topic, args.wake))
   return { text: `Queued ${queued} peer messages.`, error: false }
 }
 
@@ -122,6 +124,7 @@ export async function callTool(
     session: textArg(args.session),
     kind: textArg(args.kind),
     same_dir_only: args.same_dir_only === true,
+    wake: args.wake === true,
   }
   if (name === "peer_list") {
     const actor = await actingSession(runtime, hint)

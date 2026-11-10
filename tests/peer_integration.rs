@@ -1750,3 +1750,138 @@ fn a_busy_ui_does_not_stop_delivery() {
 
     drop(host);
 }
+
+#[test]
+fn a_received_wake_flag_wakes_the_session() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    let live = MakiId::generate();
+    let mailbox = SessionMailbox::register(live);
+    host.event_handle().fire_autocmd(
+        "SessionStatusChanged",
+        json!({ "session_id": live.to_string(), "status": "idle" }),
+    );
+
+    let mut message = inbound(&id, "wake up", Some(&live.to_string()), Some("maki"));
+    message["wake"] = json!(true);
+    write_inbound(&state, &id, message);
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let woken = mailbox.claim_wake();
+        if let Some(first) = woken.first() {
+            let text = first
+                .user_text()
+                .expect("peer message should be an observation");
+            assert!(text.contains("wake up"), "got: {text}");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "a wake message should set the mailbox wake flag"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    drop(host);
+}
+
+#[test]
+fn a_received_message_without_wake_does_not_wake() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    let live = MakiId::generate();
+    let mailbox = SessionMailbox::register(live);
+    host.event_handle().fire_autocmd(
+        "SessionStatusChanged",
+        json!({ "session_id": live.to_string(), "status": "idle" }),
+    );
+
+    let path = write_inbound(
+        &state,
+        &id,
+        inbound(&id, "just queue", Some(&live.to_string()), Some("maki")),
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while path.exists() {
+        assert!(Instant::now() < deadline, "message was never delivered");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        mailbox.claim_wake().is_empty(),
+        "a message without wake must not set the wake flag"
+    );
+    drop(host);
+}
+
+#[test]
+fn peer_send_with_wake_writes_the_flag() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+
+    write_owner(
+        &state,
+        &owner_record("oc-abc123def4567890", "opencode-072f28", 1, None, None),
+    );
+    exec_tool(
+        &registry,
+        "peer_send",
+        json!({ "peer_id": "oc-abc123def4567890", "message": "wake please", "wake": true }),
+    )
+    .unwrap();
+    exec_tool(
+        &registry,
+        "peer_send",
+        json!({ "peer_id": "oc-abc123def4567890", "message": "no wake" }),
+    )
+    .unwrap();
+
+    let queued_dir = state.join("peers/inboxes").join("oc-abc123def4567890");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut saw_wake = false;
+    let mut saw_plain = false;
+    loop {
+        if let Ok(entries) = fs::read_dir(&queued_dir) {
+            for entry in entries.flatten() {
+                let text = fs::read_to_string(entry.path()).unwrap();
+                let record: serde_json::Value = serde_json::from_str(&text).unwrap();
+                match record["body"].as_str() {
+                    Some("wake please") => {
+                        assert_eq!(record["wake"], json!(true), "got: {record}");
+                        saw_wake = true;
+                    }
+                    Some("no wake") => {
+                        assert!(
+                            record.get("wake").is_none(),
+                            "wake must be omitted unless true, got: {record}"
+                        );
+                        saw_plain = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if saw_wake && saw_plain {
+            break;
+        }
+        assert!(Instant::now() < deadline, "both messages should be queued");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    drop(host);
+}

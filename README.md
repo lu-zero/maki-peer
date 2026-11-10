@@ -91,7 +91,9 @@ the topic when there is none.
 `peer_send` reaches one peer. `peer_broadcast` reaches every other live
 peer. `same_dir_only` limits a broadcast to one directory, compared after
 trailing slashes are removed. A peer with no directory never matches. There
-is no undo. Sending to your own session is refused.
+is no undo. Sending to your own session is refused. `wake: true` asks the
+receiving host to start a turn when its session is idle; without it the
+message waits for the session's next turn.
 
 | Host                           | List                 | Send                 | Broadcast                  |
 | ------------------------------ | -------------------- | -------------------- | -------------------------- |

@@ -235,6 +235,44 @@ describe("tools", () => {
     expect(queued.from).toBe(peerIdOf(session))
   })
 
+  test("a wake flag is written into the queued record only when set", async () => {
+    const box = layout(tempRoot())
+    const spool = new Spool(box.spoolRoot)
+    await emit(box, { hook_event_name: "SessionStart", sessionId: session, cwd: "/work" })
+    const now = Math.floor(Date.now() / 1000)
+    await spool.write(spool.ownerPath("peer-target"), {
+      protocol: 1,
+      id: "peer-target",
+      name: "maki-target1",
+      started: now,
+      last_seen: now,
+      status: "idle",
+      cwd: "/work",
+      origin: { host: "maki" },
+    })
+    const woken = await callTool(spool, box.runtime, { pid, sessionId: session }, "peer_send", {
+      peer_id: "peer-target",
+      message: "wake up",
+      wake: true,
+    })
+    expect(woken.error).toBe(false)
+    const plain = await callTool(spool, box.runtime, { pid, sessionId: session }, "peer_send", {
+      peer_id: "peer-target",
+      message: "no wake",
+    })
+    expect(plain.error).toBe(false)
+    const inbox = files(spool.inboxPath("peer-target")).filter((name) => name.endsWith(".json"))
+    expect(inbox.length).toBe(2)
+    const byBody = new Map(
+      inbox.map((name) => {
+        const m = read(join(spool.inboxPath("peer-target"), name)) as Record<string, unknown>
+        return [m.body, m]
+      }),
+    )
+    expect(byBody.get("wake up")?.wake).toBe(true)
+    expect("wake" in (byBody.get("no wake") ?? {})).toBe(false)
+  })
+
   test("a session is written only when the receiver is grok, and self is refused", async () => {
     const box = layout(tempRoot())
     const spool = new Spool(box.spoolRoot)
