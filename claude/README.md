@@ -22,12 +22,13 @@ For a local checkout, load the directory for one session:
 claude --plugin-dir /absolute/path/to/maki-peer/claude
 ```
 
-For a lasting install, add a marketplace at the same path and install the
-plugin from it inside Claude Code:
+For a lasting install, add the repository as a marketplace and install the
+plugin from it inside Claude Code. The marketplace manifest is at the repository
+root and points at `claude/`:
 
 ```text
 /plugin marketplace add /absolute/path/to/maki-peer
-/plugin install maki-peer@<marketplace-name>
+/plugin install maki-peer@maki-peer
 ```
 
 With a published marketplace, the single line is
@@ -62,7 +63,9 @@ nothing appears, check that bun is installed and that the plugin loaded.
 
 A note that arrives is printed as `[peer name id] topic: body`, attached to a
 tool result or the end of a turn. A hook cannot start a turn, so mail that
-arrives while the session is idle waits for the next turn.
+arrives while the session is idle waits for the next turn. Claude hooks do not
+report a model or a session title, so those two columns read as a dash for a
+Claude peer in `peer_list`.
 
 ## Optional channel delivery
 
@@ -87,8 +90,8 @@ To use a channel instead:
    ```
 
    Accept the local development warning. For an installed plugin the entry is
-   `plugin:maki-peer@<marketplace-name>`, passed to `--channels` once the plugin
-   is allowlisted.
+   `plugin:maki-peer@maki-peer`, passed to `--channels` once the plugin is
+   allowlisted.
 
 The server then polls its own session inbox and emits
 `notifications/claude/channel` with the note as content and `peer_id` and

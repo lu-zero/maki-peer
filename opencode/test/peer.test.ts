@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, readdirSync,
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { GC_MARK_AFTER_SECONDS, MAX_TITLE_RUNES, NAME_HEX_WIDTH, kindOf, parseMessage, parseOwner, sameTree, titleOf, validId, type Owner } from "../src/protocol.js"
+import { GC_MARK_AFTER_SECONDS, MAX_INBOX, MAX_TITLE_RUNES, NAME_HEX_WIDTH, kindOf, parseMessage, parseOwner, sameTree, titleOf, validId, type Owner } from "../src/protocol.js"
 import {
   applyEvent,
   applyEventAsync,
@@ -21,6 +21,7 @@ import {
   sweepOrphanInboxes, sweepStaleOwners,
   type ResolveResult,
 } from "../src/peer.js"
+import { encodeBody, receiveOnce } from "../src/receive.js"
 import { resolveSpoolRoot, Spool } from "../src/spool.js"
 import { fakeHost, inbox, makiRecord, owners, tempRoot, writeRecord } from "./harness.js"
 
@@ -1104,6 +1105,56 @@ describe("claims", () => {
     expect(existsSync(claimed)).toBe(true)
   })
 
+  test("an old message freshly claimed is still invisible to another poller", async () => {
+    const r = tempRoot()
+    const mine = fakeHost(r, "opencode", "ses_claimer")
+    const spool = new Spool(r)
+    await spool.prepare()
+    const path = join(spool.inboxPath(mine.peerID), "m1.json")
+    await spool.write(path, makiRecord({ id: "m1", from: "mk-maki", to: mine.peerID, body: "once" }))
+    // Mail to an idle session can sit for minutes. The first poller takes the
+    // claim now, while the message itself is old.
+    const old = new Date(Date.now() - 120_000)
+    utimesSync(path, old, old)
+
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const first = receiveOnce({
+      spool,
+      peerID: mine.peerID,
+      instance: "opencode-other-1",
+      addressing: { ownSession: "ses_claimer", owns: () => true },
+      deliver: async () => {
+        await gate
+        return "delivered"
+      },
+    })
+    const claimed = claimPath(r, mine.peerID, "m1", "opencode-other-1")
+    const deadline = Date.now() + 2000
+    while (!existsSync(claimed) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    expect(existsSync(claimed)).toBe(true)
+
+    const stolen: string[] = []
+    const second = await receiveOnce({
+      spool,
+      peerID: mine.peerID,
+      instance: "opencode-second",
+      addressing: { ownSession: "ses_claimer", owns: () => true },
+      deliver: async (message) => {
+        stolen.push(message.body)
+        return "delivered"
+      },
+    })
+    release()
+    await first
+    expect(stolen).toEqual([])
+    expect(second.delivered).toBe(0)
+  })
+
   test("an abandoned claim goes back to the queue once it is old enough", async () => {
     const r = tempRoot()
     const mine = fakeHost(r, "opencode", "ses_claimer")
@@ -1210,5 +1261,37 @@ describe("the rules both halves share", () => {
     expect(sameTree({ cwd: "/home/agent/project" }, { cwd: "/home/agent/other" })).toBe(false)
     // A peer that reports no directory is not in the same tree as anybody.
     expect(sameTree({}, { cwd: "/home/agent/project" })).toBe(false)
+  })
+})
+
+describe("body size", () => {
+  test("a string body is capped in bytes, not in UTF-16 units", () => {
+    // Well under the character cap, far over the byte cap.
+    const emoji = "💥".repeat(70_000)
+    expect(encodeBody(emoji)).toBeUndefined()
+    expect(encodeBody("a".repeat(100))).toBe("a".repeat(100))
+  })
+
+  test("an inbox over the cap reports the overflow and delivers only the cap", async () => {
+    const r = tempRoot()
+    const mine = fakeHost(r, "opencode", "ses_overflow")
+    const spool = new Spool(r)
+    await spool.prepare()
+    for (let i = 0; i < MAX_INBOX + 5; i++) {
+      const id = `m${String(i).padStart(3, "0")}`
+      await spool.write(
+        join(spool.inboxPath(mine.peerID), `${id}.json`),
+        makiRecord({ id, from: "mk-maki", to: mine.peerID, body: id }),
+      )
+    }
+    const report = await receiveOnce({
+      spool,
+      peerID: mine.peerID,
+      instance: "test",
+      addressing: { ownSession: "ses_overflow", owns: () => true },
+      deliver: async () => "delivered",
+    })
+    expect(report.overflow).toBe(5)
+    expect(report.delivered).toBe(MAX_INBOX)
   })
 })

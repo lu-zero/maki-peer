@@ -12,3 +12,23 @@ test:
 
 fmt-lua:
     stylua plugin/
+
+# One host at a time, matching the CI jobs.
+opencode:
+    cd opencode && bun install --frozen-lockfile && bunx tsc --noEmit && bun test
+
+grok:
+    cd grok && bun install --frozen-lockfile && bunx tsc --noEmit && bun test
+
+vibe:
+    cd vibe && bun install --frozen-lockfile && bunx tsc --noEmit && bun test
+
+claude:
+    cd claude && bun install --frozen-lockfile && bunx tsc --noEmit && bun test
+
+# Everything CI runs, in the same order.
+all: check lint test fmt opencode grok vibe claude
+
+fmt:
+    cargo fmt --all -- --check
+    just fmt-lua

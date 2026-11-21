@@ -37,6 +37,11 @@ The prefixes are `mk-`, `oc-`, `gk-`, `vb-`, and `cc-`.
 bun must be on `PATH`, or at `~/.bun/bin/bun`, for OpenCode, Grok, Vibe, and
 Claude Code.
 
+Upgrading from a build that used `peer-` ids: Maki now uses `mk-`. Old
+`owners/peer-*.json` records age out on their own. Mail already queued in
+`inboxes/peer-*` is not moved, so let running sessions drain it before you
+upgrade, or clear those directories by hand.
+
 ### Maki
 
 ```lua
@@ -109,8 +114,9 @@ the topic when there is none.
 peer. `same_dir_only` limits a broadcast to one directory, compared after
 trailing slashes are removed. A peer with no directory never matches. There
 is no undo. Sending to your own session is refused. `wake: true` asks the
-receiving host to start a turn when its session is idle; without it the
-message waits for the session's next turn.
+receiving host to start a turn for the note when its session is idle. Only
+Maki can do that today. OpenCode resumes on every delivery, and Grok, Vibe,
+and Claude Code attach the note to the next turn without starting one.
 
 `peer_list` shows one line per live peer. The columns are the id, status,
 model, title, working directory, and host. A peer with no model, title, or
@@ -118,13 +124,17 @@ directory shows a dash. The directory is printed in full. `peer_cwd` returns
 the same directories as a JSON object keyed by the full peer id, with `null`
 for a peer that reports none.
 
-| Host                           | List                 | Directories            | Send                 | Broadcast                  |
-| ------------------------------ | -------------------- | ---------------------- | -------------------- | -------------------------- |
-| [Maki](#maki)                  | `peer_list`          | `peer_cwd`             | `peer_send`          | `peer_broadcast`           |
-| [OpenCode](opencode/README.md) | `peer_list`          | `peer_cwd`             | `peer_send`          | `peer_broadcast`           |
-| [Grok](grok/README.md)         | `peer__peer_list`    | `peer__peer_cwd`       | `peer__peer_send`    | `peer__peer_broadcast`     |
-| [Vibe](vibe/README.md)         | `mcp_peer.peer_list` | `mcp_peer.peer_cwd`    | `mcp_peer.peer_send` | `mcp_peer.peer_broadcast`  |
-| [Claude Code](claude/README.md) | `mcp__plugin_maki-peer_peer__peer_list` | `mcp__plugin_maki-peer_peer__peer_cwd` | `mcp__plugin_maki-peer_peer__peer_send` | `mcp__plugin_maki-peer_peer__peer_broadcast` |
+| Host                            | List        | Directories  | Send         | Broadcast         |
+| ------------------------------- | ----------- | ------------ | ------------ | ----------------- |
+| [Maki](#maki)                   | `peer_list` | `peer_cwd`   | `peer_send`  | `peer_broadcast`  |
+| [OpenCode](opencode/README.md)  | `peer_list` | `peer_cwd`   | `peer_send`  | `peer_broadcast`  |
+| [Grok](grok/README.md)          | `peer_list` | `peer_cwd`   | `peer_send`  | `peer_broadcast`  |
+| [Vibe](vibe/README.md)          | `peer_list` | `peer_cwd`   | `peer_send`  | `peer_broadcast`  |
+| [Claude Code](claude/README.md) | `peer_list` | `peer_cwd`   | `peer_send`  | `peer_broadcast`  |
+
+The short names in the table are the tool names. Grok prefixes them with
+`peer__`, Vibe with `mcp_peer.`, and Claude Code with
+`mcp__plugin_maki-peer_peer__`.
 
 `/peer` and `peer_spawn` exist only on Maki. `peer_spawn` starts a detached
 `tmux` session. The model spec is `provider/model-id`.

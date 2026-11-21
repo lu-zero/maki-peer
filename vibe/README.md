@@ -1,9 +1,10 @@
 # vibe-maki-peer
 
 The Vibe half of [maki-peer](../README.md). It speaks the same spool protocol
-as the [Maki](../README.md#maki), [OpenCode](../opencode/README.md), and
-[Grok](../grok/README.md) plugins, so the four hosts discover each other and
-pass observations through one shared directory. The layout is
+as the [Maki](../README.md#maki), [OpenCode](../opencode/README.md),
+[Grok](../grok/README.md), and [Claude Code](../claude/README.md) plugins, so
+the five hosts discover each other and pass observations through one shared
+directory. The layout is
 [Architecture](../docs/architecture.md).
 
 Vibe loads this directory as an Agent Plugins 1.0 package: a skill, four

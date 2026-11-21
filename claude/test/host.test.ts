@@ -30,19 +30,18 @@ afterEach(() => {
 function layout(root: string) {
   const spoolRoot = join(root, "peers")
   const env = { ...process.env, HOME: root, MAKI_PEER_SPOOL: spoolRoot }
-  return { spoolRoot, runtime: runtimeDir(spoolRoot), env }
+  return { spoolRoot, runtime: runtimeDir(spoolRoot) }
 }
 
 const session = "ses_claude_one"
 const pid = process.pid
 
-async function emit(box: ReturnType<typeof layout>, event: Record<string, unknown>, env?: NodeJS.ProcessEnv) {
+async function emit(box: ReturnType<typeof layout>, event: Record<string, unknown>) {
   return handleEvent({
     event,
     claudePid: pid,
     spoolRoot: box.spoolRoot,
     runtime: box.runtime,
-    ...(env ? { env } : {}),
   })
 }
 
@@ -152,8 +151,7 @@ describe("delivery", () => {
 
   test("a channel claims idle mail, so a later hook has nothing to print", async () => {
     const box = layout(tempRoot())
-    const env = { ...box.env, MAKI_PEER_CHANNELS: "1" }
-    await emit(box, { hook_event_name: "SessionStart", session_id: session, cwd: "/work" }, env)
+    await emit(box, { hook_event_name: "SessionStart", session_id: session, cwd: "/work" })
     await writeMail(box)
 
     const sink = collector()
@@ -170,7 +168,7 @@ describe("delivery", () => {
     expect(params.meta.origin_host).toBe("maki")
     expect(params.meta.peer_id).toBe("mk-aaaaaaaa")
 
-    const reply = await emit(box, { hook_event_name: "PostToolUse", session_id: session }, env)
+    const reply = await emit(box, { hook_event_name: "PostToolUse", session_id: session })
     expect(reply).toBe("")
   })
 })

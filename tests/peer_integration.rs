@@ -1037,7 +1037,8 @@ fn a_foreign_host_session_id_is_ignored_and_the_local_session_is_used() {
         .unwrap();
     let mailbox = SessionMailbox::register(own_session);
     let live = MakiId::generate();
-    fire_autocmd(&host.event_handle(), 
+    fire_autocmd(
+        &host.event_handle(),
         "SessionStatusChanged",
         json!({ "session_id": live.to_string(), "status": "idle" }),
     );
@@ -1076,7 +1077,8 @@ fn a_message_for_a_dead_session_is_dropped_instead_of_retried() {
 
     let live = MakiId::generate();
     let mailbox = SessionMailbox::register(live);
-    fire_autocmd(&host.event_handle(), 
+    fire_autocmd(
+        &host.event_handle(),
         "SessionStatusChanged",
         json!({ "session_id": live.to_string(), "status": "idle" }),
     );
@@ -1114,7 +1116,8 @@ fn peer_list_reports_the_focused_session_status() {
 
     let live = MakiId::generate();
     let _mailbox = SessionMailbox::register(live);
-    fire_autocmd(&host.event_handle(), 
+    fire_autocmd(
+        &host.event_handle(),
         "SessionStatusChanged",
         json!({ "session_id": live.to_string(), "status": "needs_input" }),
     );
@@ -1269,7 +1272,8 @@ fn an_arriving_message_shows_a_step() {
 
     let live = MakiId::generate();
     let _mailbox = SessionMailbox::register(live);
-    fire_autocmd(&host.event_handle(), 
+    fire_autocmd(
+        &host.event_handle(),
         "SessionStatusChanged",
         json!({ "session_id": live.to_string(), "status": "idle" }),
     );
@@ -1308,7 +1312,8 @@ fn a_step_is_labelled_with_the_sender() {
 
     let live = MakiId::generate();
     let _mailbox = SessionMailbox::register(live);
-    fire_autocmd(&host.event_handle(), 
+    fire_autocmd(
+        &host.event_handle(),
         "SessionStatusChanged",
         json!({ "session_id": live.to_string(), "status": "idle" }),
     );
@@ -1619,7 +1624,8 @@ fn a_topic_leads_the_message() {
 
     let live = MakiId::generate();
     let mailbox = SessionMailbox::register(live);
-    fire_autocmd(&host.event_handle(), 
+    fire_autocmd(
+        &host.event_handle(),
         "SessionStatusChanged",
         json!({ "session_id": live.to_string(), "status": "idle" }),
     );
@@ -1709,7 +1715,8 @@ fn a_message_without_a_topic_is_unchanged() {
 
     let live = MakiId::generate();
     let _mailbox = SessionMailbox::register(live);
-    fire_autocmd(&host.event_handle(), 
+    fire_autocmd(
+        &host.event_handle(),
         "SessionStatusChanged",
         json!({ "session_id": live.to_string(), "status": "idle" }),
     );
@@ -1746,7 +1753,8 @@ fn a_step_for_another_session_says_so() {
 
     let live = MakiId::generate();
     let _mailbox = SessionMailbox::register(live);
-    fire_autocmd(&host.event_handle(), 
+    fire_autocmd(
+        &host.event_handle(),
         "SessionStatusChanged",
         json!({ "session_id": live.to_string(), "status": "idle" }),
     );
@@ -1783,7 +1791,8 @@ fn a_busy_ui_does_not_stop_delivery() {
 
     let live = MakiId::generate();
     let mailbox = SessionMailbox::register(live);
-    fire_autocmd(&host.event_handle(), 
+    fire_autocmd(
+        &host.event_handle(),
         "SessionStatusChanged",
         json!({ "session_id": live.to_string(), "status": "idle" }),
     );
@@ -1819,7 +1828,8 @@ fn a_received_wake_flag_wakes_the_session() {
 
     let live = MakiId::generate();
     let mailbox = SessionMailbox::register(live);
-    fire_autocmd(&host.event_handle(), 
+    fire_autocmd(
+        &host.event_handle(),
         "SessionStatusChanged",
         json!({ "session_id": live.to_string(), "status": "idle" }),
     );
@@ -1868,7 +1878,8 @@ fn a_wake_message_wakes_under_the_manifests_own_grants() {
 
     let live = MakiId::generate();
     let mailbox = SessionMailbox::register(live);
-    fire_autocmd(&host.event_handle(), 
+    fire_autocmd(
+        &host.event_handle(),
         "SessionStatusChanged",
         json!({ "session_id": live.to_string(), "status": "idle" }),
     );
@@ -1909,7 +1920,8 @@ fn a_received_message_without_wake_does_not_wake() {
 
     let live = MakiId::generate();
     let mailbox = SessionMailbox::register(live);
-    fire_autocmd(&host.event_handle(), 
+    fire_autocmd(
+        &host.event_handle(),
         "SessionStatusChanged",
         json!({ "session_id": live.to_string(), "status": "idle" }),
     );

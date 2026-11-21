@@ -492,4 +492,44 @@ describe("hook script", () => {
     expect((await ownerOf(box.spool, box.sessionId))?.status).toBe("working")
     expect((await loadState(box.pluginData, box.sessionId))?.cwd).toBe("/work/app")
   })
+
+  test("post_tool prints the note as hook stdout", async () => {
+    const box = layout()
+    const peerId = peerIdOf(box.sessionId)
+    const id = `${peerId}-script-note`
+    await box.spool.ensureInbox(peerId)
+    await box.spool.write(
+      join(box.spool.inboxPath(peerId), `${id}.json`),
+      messageRecord({
+        id,
+        from: "maki-aaaaaaaa",
+        fromName: "maki-aaaaaaaa",
+        to: peerId,
+        body: "the build failed",
+        kind: "observation",
+        host: "maki",
+      }),
+    )
+    const env = {
+      ...process.env,
+      HOME: box.root,
+      MAKI_PEER_SPOOL: box.spoolRoot,
+      PLUGIN_DATA: box.pluginData,
+    }
+    const proc = Bun.spawn(["sh", join(import.meta.dir, "../bin/hook")], {
+      env,
+      stdin: Buffer.from(JSON.stringify(event("post_tool", box.sessionId, "/work/app"))),
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ])
+    expect(exitCode).toBe(0)
+    expect(stderr).toBe("")
+    expect(stdout).toContain("[peer maki-aaaaaaaa maki-aaaaaaaa] the build failed")
+    expect(await box.spool.read(join(box.spool.inboxPath(peerId), `${id}.json`))).toBeUndefined()
+  })
 })

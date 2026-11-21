@@ -144,21 +144,46 @@ function pendingPath(runtime: string, sessionId: string): string {
   return join(runtime, "pending", `${sessionId}.json`)
 }
 
-export async function appendPending(runtime: string, sessionId: string, text: string): Promise<void> {
+type PendingMail = string | { text: string; expires: number }
+
+/** Park a note for another Grok session, keeping its envelope expiry. */
+export async function appendPending(
+  runtime: string,
+  sessionId: string,
+  text: string,
+  expires: number,
+): Promise<void> {
   if (!validId(sessionId)) return
   const path = pendingPath(runtime, sessionId)
   const existing = await readJson(path)
-  const lines = Array.isArray(existing) ? existing.filter((item): item is string => typeof item === "string") : []
-  lines.push(text)
+  const lines: PendingMail[] = Array.isArray(existing)
+    ? existing.filter((item): item is PendingMail => typeof item === "string" || (typeof item === "object" && item !== null && typeof (item as { text?: unknown }).text === "string"))
+    : []
+  lines.push({ text, expires })
   await writeJson(path, lines)
 }
 
-export async function takePending(runtime: string, sessionId: string): Promise<string[]> {
+/** Return parked notes that have not expired. A bare string is a legacy note. */
+export async function takePending(runtime: string, sessionId: string, now = Date.now() / 1000): Promise<string[]> {
   if (!validId(sessionId)) return []
   const path = pendingPath(runtime, sessionId)
   const existing = await readJson(path)
   await rm(path, { force: true })
-  return Array.isArray(existing) ? existing.filter((item): item is string => typeof item === "string") : []
+  if (!Array.isArray(existing)) return []
+  const lines: string[] = []
+  for (const item of existing) {
+    if (typeof item === "string") {
+      lines.push(item)
+      continue
+    }
+    if (typeof item === "object" && item !== null) {
+      const entry = item as { text?: unknown; expires?: unknown }
+      if (typeof entry.text === "string" && typeof entry.expires === "number" && entry.expires > now) {
+        lines.push(entry.text)
+      }
+    }
+  }
+  return lines
 }
 
 /**

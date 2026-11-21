@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 
 import { isSessionId } from "./identity.ts"
@@ -32,15 +32,30 @@ export async function withStateLock<T>(pluginData: string, job: () => Promise<T>
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
       const info = await stat(lock).catch(() => undefined)
       if (info && Date.now() - info.mtimeMs > LOCK_STALE_MS) {
-        await rm(lock, { recursive: true, force: true })
+        // Move the stale lock aside in one atomic step. Two waiters cannot
+        // both win the rename, which a plain remove then mkdir could not stop.
+        const aside = `${lock}.${process.pid}.${Math.random().toString(36).slice(2)}.stale`
+        try {
+          await rename(lock, aside)
+        } catch {
+          continue
+        }
+        await rm(aside, { recursive: true, force: true }).catch(() => {})
         continue
       }
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
   }
+  // A slow job must not look like a killed one. Keep the lock's mtime fresh
+  // while it runs; the holder clears this before it leaves.
+  const heartbeat = setInterval(() => {
+    void utimes(lock, new Date(), new Date()).catch(() => {})
+  }, 1000)
+  heartbeat.unref?.()
   try {
     return await job()
   } finally {
+    clearInterval(heartbeat)
     await rm(lock, { recursive: true, force: true })
   }
 }

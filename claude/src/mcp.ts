@@ -29,7 +29,7 @@ const TOOLS = [
         topic: { type: "string", description: "Short subject of the message, shown before the body" },
         session: { type: "string", description: "Optional session id on the receiving host" },
         kind: { type: "string", enum: ["observation", "status"] },
-        wake: { type: "boolean", description: "Wake the receiving session if it is idle, so the message starts a turn instead of waiting" },
+        wake: { type: "boolean", description: "Ask the receiving host to start a turn for this note when its session is idle. Only some hosts can do this; elsewhere the note waits for the next turn." },
       },
       required: ["peer_id", "message"],
       additionalProperties: false,
@@ -45,7 +45,7 @@ const TOOLS = [
         topic: { type: "string", description: "Short subject of the message, shown before the body" },
         session: { type: "string", description: "Optional session id on the receiving host" },
         kind: { type: "string", enum: ["observation", "status"] },
-        wake: { type: "boolean", description: "Wake the receiving session if it is idle, so the message starts a turn instead of waiting" },
+        wake: { type: "boolean", description: "Ask the receiving host to start a turn for this note when its session is idle. Only some hosts can do this; elsewhere the note waits for the next turn." },
         same_dir_only: {
           type: "boolean",
           description: "Only peers reporting the same directory, where this host reports one",
@@ -138,6 +138,8 @@ export async function channelEvent(
     addressing: { ownSession: state.sessionId, owns: (sessionID: string) => own.has(sessionID) },
     deliver: async (message: PeerMessage, target: string) => {
       const host = originHost(message)
+      // An unknown host is not emitted here, but the hooks still deliver it on
+      // their next event, so keep the claim off it rather than dropping it.
       if (!HOSTS.has(host) || target !== state.sessionId) return "retry"
       const event = {
         jsonrpc: "2.0",

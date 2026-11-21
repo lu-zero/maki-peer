@@ -1,7 +1,7 @@
 import { Plugin } from "@opencode/plugin"
 import { join } from "node:path"
 
-import { DETAIL_REFRESH_SECONDS, GC_SWEEP_INTERVAL_SECONDS, ORIGIN_HOST, OWNER_REFRESH_MS, POLL_MS, kindOf, sameTree, validId, type Owner, type PeerMessage } from "./protocol.js"
+import { DETAIL_REFRESH_SECONDS, GC_SWEEP_INTERVAL_SECONDS, ORIGIN_HOST, OWNER_REFRESH_MS, POLL_MS, kindOf, sameTree, type Owner, type PeerMessage } from "./protocol.js"
 import { applyEventAsync, broadcastTo, deliveryText, formatCwdMap, formatPeerLines, messageRecord, newInstanceId, newMessageId, PeerRegistry, resolvePeer, sweepOrphanInboxes, sweepStaleOwners, type EventData } from "./peer.js"
 import { encodeBody, receiveOnce, type DeliveryOutcome } from "./receive.js"
 import { resolveSpoolRoot, Spool } from "./spool.js"
@@ -173,6 +173,7 @@ export default Plugin.define({
           addressing: { ownSession: sessionID, owns: (id) => registry.has(id) },
           deliver,
           onDrop: (message, reason) => log("warn", `dropped ${message.id}: ${reason}`),
+          onRetry: (message, reason) => log("warn", `retrying ${message.id}: ${reason}`),
         })
         if (report.overflow > 0) log("warn", `${report.overflow} messages waited behind the inbox cap this cycle`)
       }
@@ -280,20 +281,24 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
       // A session id only means something on the host that minted it, so it is
       // only written when the receiver is this host and could act on it.
       const sameHost = (target.origin?.host ?? "maki") === ORIGIN_HOST
-      await spool.write(
-        join(spool.inboxPath(target.id), `${id}.json`),
-        messageRecord({
-          id,
-          from: fromID,
-          fromName: registry.nameFor(fromSessionID) ?? "opencode",
-          to: target.id,
-          body: encoded,
-          kind,
-          ...(topic ? { topic } : {}),
-          ...(sameHost && session ? { session } : {}),
-          ...(wake ? { wake } : {}),
-        }),
-      )
+      try {
+        await spool.write(
+          join(spool.inboxPath(target.id), `${id}.json`),
+          messageRecord({
+            id,
+            from: fromID,
+            fromName: registry.nameFor(fromSessionID) ?? "opencode",
+            to: target.id,
+            body: encoded,
+            kind,
+            ...(topic ? { topic } : {}),
+            ...(sameHost && session ? { session } : {}),
+            ...(wake ? { wake } : {}),
+          }),
+        )
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) }
+      }
       return { id, peer: target.id }
     }
 
@@ -322,7 +327,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
             topic: { type: "string", description: "Short subject of the message, shown before the body" },
             session: { type: "string", description: "Optional session id on the receiving host" },
             kind: { type: "string", enum: ["observation", "status"] },
-            wake: { type: "boolean", description: "Wake the receiving session if it is idle, so the message starts a turn instead of waiting" },
+            wake: { type: "boolean", description: "Ask the receiving host to start a turn for this note when its session is idle. Only some hosts can do this; elsewhere the note waits for the next turn." },
           },
           required: ["peer_id", "message"],
           additionalProperties: false,
@@ -349,7 +354,7 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
             topic: { type: "string", description: "Short subject of the message, shown before the body" },
             session: { type: "string", description: "Optional session id on the receiving host" },
             kind: { type: "string", enum: ["observation", "status"] },
-            wake: { type: "boolean", description: "Wake the receiving session if it is idle, so the message starts a turn instead of waiting" },
+            wake: { type: "boolean", description: "Ask the receiving host to start a turn for this note when its session is idle. Only some hosts can do this; elsewhere the note waits for the next turn." },
             same_dir_only: {
               type: "boolean",
               description: "Only peers reporting the same directory, where this host reports one",
@@ -364,11 +369,9 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
           const kind = kindOf(args.kind)
           const sameDirOnly = args.same_dir_only === true
           const targets = await broadcastTargets(context.sessionID, sameDirOnly)
-          let queued = 0
-          for (const peer of targets) {
-            const result = await queue(peer, args.message, kind, context.sessionID, args.session, args.topic, args.wake)
-            if (!("error" in result)) queued++
-          }
+          const queued = await broadcastTo(targets, (peer) =>
+            queue(peer, args.message, kind, context.sessionID, args.session, args.topic, args.wake),
+          )
           // The count is the count of messages that were really queued, and
           // the wording is the maki half's wording, because an agent that has
           // learned one set uses the other the same way.

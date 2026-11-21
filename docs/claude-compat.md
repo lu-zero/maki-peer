@@ -5,11 +5,11 @@ Channel delivery is the optional A2 bridge. This page keeps the reasoning and
 the alternatives.
 
 There were no notes on this subject in the repository. This page records the
-choices so one can be made before code is written.
+choices that led to the fifth host and the ones still open.
 
 ## What maki-peer has today
 
-Four hosts share one local spool. A presence record is
+Five hosts share one local spool. A presence record is
 `owners/<peer-id>.json` and a message is `inboxes/<peer-id>/<message-id>.json`.
 Records carry `origin.host` and an optional `cwd`. A `session` field is honoured
 only when it names the reading host's own id format. Delivery is at least once
@@ -141,7 +141,7 @@ scoped MCP names Claude gives them.
 ## Recommendation
 
 Option C was taken, with option D as its first increment. It preserves the
-protocol invariants that the four hosts already agree on and it can be tested
+protocol invariants that the other hosts already agree on and it can be tested
 without a Claude process. The optional channel bridge is A2, not A1: the
 channel contract is documented while the socket payload is not. Option B is
 only useful for a user who already runs teams and wants maki peers inside them.
@@ -161,27 +161,25 @@ an improvement for delivery during an active turn, which the Vibe half already
 covers with `pre_agent` and `post_tool`. It does not start a turn in an idle
 session, so the limit documented in [Vibe](../vibe/README.md) still holds.
 
-## Open questions
+## Decisions
 
-- Which hook events may attach `additionalContext`? Grok relies on
-  `PostToolUse` and `Stop`. Turn start injection would be better, but the
-  answer must be confirmed per event before the hook script is written.
-- What is the stable session id? Hook input carries `session_id`, so a hash of
-  it can give `cc-` ids the same way OpenCode and Vibe build theirs.
-- How is presence kept fresh while the session is idle? A hook started daemon
-  is the existing pattern. It needs a runtime directory under
-  `${CLAUDE_PLUGIN_DATA}` and must not write protocol records there.
-- What happens to `wake`? Assume the Vibe limit until a Claude hook is found
-  that can start a turn, and document the refusal rather than retrying.
-- How are tools named? Use MCP scoped names so the built in `SendMessage` and
+- `PostToolUse` and `Stop` are the two events where the hook attaches
+  `additionalContext`. A turn start hook would be better for idle mail, but
+  no Claude hook can do it yet. The optional channel bridge covers the gap
+  where it is enabled.
+- The session id comes from the hook's `session_id`. A hash of it gives `cc-`
+  ids the same way OpenCode and Vibe build theirs.
+- Presence is kept fresh by a hook started daemon. It keeps its lock, heartbeat
+  and session files in `claude-peer` beside the spool, never in the spool.
+- `wake` cannot start a Claude turn. The note waits for the next one, and the
+  shared tool description says that hosts differ.
+- Tools use Claude's scoped MCP names so the built in `SendMessage` and
   `ListAgents` are untouched.
-- How is description parity enforced? Add the fifth source file to
-  `tests/plugin.rs`, which currently checks three tools across four hosts.
-- Where do tests live? Headless tests of the shared modules and a hook stdout
-  test, matching the Grok and Vibe suites. A live Claude session is not needed.
-- Is the security rule already satisfied? Claude treats peer messages as data
-  from another session and not as user consent. That matches maki's rule that
-  an observation is data, not a prompt.
+- Description parity is checked in `tests/plugin.rs` across all five hosts.
+- Tests are headless: shared modules, hook stdout, tool results, and channel
+  events. A live Claude session is not needed.
+- Peer text is data from another session and never user consent. That matches
+  maki's rule that an observation is data, not a prompt.
 
 ## Sources
 

@@ -1336,7 +1336,7 @@ maki.api.register_tool({
       kind = { type = "string", description = "observation or status" },
       wake = {
         type = "boolean",
-        description = "Wake the receiving session if it is idle, so the message starts a turn instead of waiting",
+        description = "Ask the receiving host to start a turn for this note when its session is idle. Only some hosts can do this; elsewhere the note waits for the next turn.",
       },
     },
   },
@@ -1372,7 +1372,7 @@ maki.api.register_tool({
       same_dir_only = { type = "boolean", description = "Only peers reporting the same working directory" },
       wake = {
         type = "boolean",
-        description = "Wake the receiving session if it is idle, so the message starts a turn instead of waiting",
+        description = "Ask the receiving host to start a turn for this note when its session is idle. Only some hosts can do this; elsewhere the note waits for the next turn.",
       },
     },
   },

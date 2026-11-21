@@ -192,7 +192,7 @@ export function parseMessage(value: unknown, to: string): PeerMessage | undefine
   if (value.protocol !== PROTOCOL_VERSION) return undefined
   if (value.to !== to) return undefined
   if (!validId(value.id) || !validId(value.from)) return undefined
-  if (typeof value.body !== "string" || value.body.length > MAX_BODY_BYTES) return undefined
+  if (typeof value.body !== "string" || Buffer.byteLength(value.body, "utf8") > MAX_BODY_BYTES) return undefined
   if (value.kind !== "observation" && value.kind !== "status") return undefined
   if (value.session !== undefined && typeof value.session !== "string") return undefined
   if (value.topic !== undefined && typeof value.topic !== "string") return undefined

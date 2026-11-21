@@ -45,6 +45,13 @@ The Vibe half in `vibe/` is checked separately:
 
 Its tests assert the hook stdout and the spool files that text came from. The hook script resolves `PLUGIN_DATA` and `MAKI_PEER_SPOOL` the same way the server does. `vibe/src/shared` is a copy of the host-free spool modules, and a test requires the copy to match.
 
+The Claude Code half in `claude/` is checked separately:
+
+- `cd claude && bun test`
+- `cd claude && bunx tsc --noEmit`
+
+Its tests assert the hook stdout, the spool files, the tool results, and the optional channel event. `claude/src/shared` is a byte-for-byte copy of the host-free spool modules, and a test requires the copy to match. The marketplace manifest at the repository root points at `claude/`.
+
 ## Layout
 
 - `plugin/` — the maki plugin entry files, loaded sorted by file name; chunks share one environment.
@@ -53,15 +60,17 @@ Its tests assert the hook stdout and the spool files that text came from. The ho
 - `opencode/` — the opencode plugin, its own `README.md`, and its tests.
 - `grok/` — the Grok plugin (hooks, a skill, and an MCP server), its own `README.md`, and its tests. `src/shared` is a copy of the host-free spool modules.
 - `vibe/` — the Vibe plugin (hooks, a skill, and an MCP server), its own `README.md`, and its tests. `src/shared` is a copy of the host-free spool modules. `upstream-issue.md` is the request for idle delivery.
-- `justfile` — check, lint, test, fmt-lua.
+- `claude/` — the Claude Code plugin (hooks, a skill, and an MCP server), its own `README.md`, and its tests. `src/shared` is a copy of the host-free spool modules.
+- `.claude-plugin/marketplace.json` — the local marketplace that installs `claude/`.
+- `justfile` — check, lint, test, and the per-host suites.
 
 ## The spool
 
-The four hosts write presence records to `owners/<peer-id>.json` and messages to `inboxes/<peer-id>/<message-id>.json` under one per-user directory. The maki half resolves that directory through `maki.env.state_dir()`, and the opencode half through `resolveSpoolRoot` in `opencode/src/spool.ts`. The grok and vibe halves use `resolveSpoolRoot` too, with `MAKI_PEER_SPOOL` as a test override. They must agree, including maki's rule that a `~/.maki` directory takes over every path when it exists.
+The five hosts write presence records to `owners/<peer-id>.json` and messages to `inboxes/<peer-id>/<message-id>.json` under one per-user directory. The maki half resolves that directory through `maki.env.state_dir()`, and the opencode half through `resolveSpoolRoot` in `opencode/src/spool.ts`. The grok, vibe, and claude halves use `resolveSpoolRoot` too, with `MAKI_PEER_SPOOL` as a test override. They must agree, including maki's rule that a `~/.maki` directory takes over every path when it exists. The id prefixes are `mk-`, `oc-`, `gk-`, `vb-`, and `cc-`.
 
-Grok keeps its own runtime files in a `grok-peer` directory beside the spool root: session state, the helper's port, and mail that is waiting for another Grok session. Those files are not protocol records. Vibe keeps its session state in the per-session `PLUGIN_DATA` directory Vibe assigns, which is also not a protocol record.
+Grok keeps its own runtime files in a `grok-peer` directory beside the spool root: session state, the helper's port and heartbeat, and mail that is waiting for another Grok session. Claude keeps its runtime files in `claude-peer` beside the spool root. Those files are not protocol records. Vibe keeps its session state in the per-session `PLUGIN_DATA` directory Vibe assigns, which is also not a protocol record.
 
-Two rules keep the hosts compatible. Records carry `origin.host`, and a `session` field is honoured only when it names the reading host's own id format, because an id means nothing on the other side. A message that can never be delivered, because it names a session or host that is gone, is dropped and logged rather than retried until it expires.
+Three rules keep the hosts compatible. Records carry `origin.host`, and a `session` field is honoured only when it names the reading host's own id format, because an id means nothing on the other side. A message that can never be delivered, because it names a session or host that is gone, is dropped and logged rather than retried until it expires. The `wake` field is written by every host but only Maki starts a turn from it; the tool description says so, so keep the five copies equal when it changes.
 
 ## Docs
 

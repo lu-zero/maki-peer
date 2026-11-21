@@ -1,4 +1,4 @@
-import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs"
+import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync, writeSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import { join } from "node:path"
 
@@ -8,32 +8,71 @@ import { listStates, pidAlive, publish, removeState, unpublish } from "./state.t
 
 const EMPTY_EXIT_MS = 30_000
 const REFRESH_MS = 2000
+const HEARTBEAT_STALE_MS = 15_000
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/** The lock holds its own pid, so a crashed holder can be told from a live one. */
-async function acquireLock(path: string): Promise<boolean> {
+function writeHeartbeat(path: string): void {
+  try {
+    writeFileSync(path, String(Date.now()))
+  } catch {
+    /* the next refresh writes it again */
+  }
+}
+
+function heartbeatFresh(path: string): boolean {
+  try {
+    const at = Number(readFileSync(path, "utf8"))
+    return Number.isFinite(at) && Date.now() - at < HEARTBEAT_STALE_MS
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The lock names its holder, which refreshes a heartbeat beside it. A pid can
+ * outlive the daemon that owned it, so the heartbeat is what says the holder is
+ * still running. It also closes the window between creating the lock and
+ * writing the pid.
+ */
+async function acquireLock(lock: string, heartbeat: string): Promise<boolean> {
   for (let attempt = 0; attempt < 20; attempt++) {
     try {
-      const fd = openSync(path, "wx")
+      const fd = openSync(lock, "wx")
       writeSync(fd, String(process.pid))
       closeSync(fd)
+      let written = 0
+      try {
+        written = Number(readFileSync(lock, "utf8"))
+      } catch {
+        written = 0
+      }
+      if (written !== process.pid) {
+        await sleep(20)
+        continue
+      }
+      writeHeartbeat(heartbeat)
       return true
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
       let holder = 0
       try {
-        holder = Number(readFileSync(path, "utf8"))
+        holder = Number(readFileSync(lock, "utf8"))
       } catch {
         holder = 0
       }
-      if (pidAlive(holder)) return false
+      if (pidAlive(holder) && heartbeatFresh(heartbeat)) return false
       try {
-        unlinkSync(path)
+        unlinkSync(lock)
       } catch {
         /* the owner removed it between the read and the unlink */
+      }
+      try {
+        unlinkSync(heartbeat)
+      } catch {
+        /* a missing heartbeat is already stale */
       }
       await sleep(20)
     }
@@ -41,12 +80,17 @@ async function acquireLock(path: string): Promise<boolean> {
   return false
 }
 
-function releaseLock(path: string): void {
+function releaseLock(lock: string, heartbeat: string): void {
   try {
-    if (Number(readFileSync(path, "utf8")) !== process.pid) return
-    unlinkSync(path)
+    if (Number(readFileSync(lock, "utf8")) !== process.pid) return
+    unlinkSync(lock)
   } catch {
     /* a lock we no longer hold is the next start's problem */
+  }
+  try {
+    unlinkSync(heartbeat)
+  } catch {
+    /* a missing heartbeat is harmless */
   }
 }
 
@@ -72,7 +116,8 @@ async function main(): Promise<void> {
   const runtime = runtimeDir(spoolRoot)
   await mkdir(runtime, { recursive: true })
   const lock = join(runtime, "daemon.lock")
-  if (!(await acquireLock(lock))) process.exit(0)
+  const heartbeat = join(runtime, "daemon.heartbeat")
+  if (!(await acquireLock(lock, heartbeat))) process.exit(0)
 
   let emptySince = 0
   let stopped = false
@@ -82,12 +127,13 @@ async function main(): Promise<void> {
     if (stopped) return
     stopped = true
     if (timer) clearInterval(timer)
-    releaseLock(lock)
+    releaseLock(lock, heartbeat)
     process.exit(0)
   }
 
   timer = setInterval(() => {
     refreshing = refreshing.then(async () => {
+      writeHeartbeat(heartbeat)
       const live = await refreshAll(spoolRoot, runtime)
       if (live > 0) {
         emptySince = 0

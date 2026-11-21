@@ -4,7 +4,7 @@ Five hosts share one local spool. Each one publishes a presence record and
 writes mail as files. The recipient host reads its own inbox and delivers
 the text into its own session.
 
-![Four hosts share one spool](architecture.svg)
+![Five hosts share one spool](architecture.svg)
 
 The hosts are [Maki](../README.md#maki), [OpenCode](../opencode/README.md),
 [Grok](../grok/README.md), [Vibe](../vibe/README.md), and
@@ -53,6 +53,11 @@ trailing slashes are removed. A peer with no directory never matches. Two
 worktrees are not the same directory. There is no undo. Sending to your own
 session is refused. Sending to another session of your own host works.
 
+The optional `wake` field asks the receiving host to start a turn for the
+note. Maki does that. OpenCode resumes the session on every delivery, and
+Grok, Vibe, and Claude Code attach the note to a later turn without starting
+one. The field is written on every host so records stay alike.
+
 On Vibe, `cwd` is recorded when a tool starts. Until that happens,
 `same_dir_only` refuses to select peers.
 
@@ -73,10 +78,11 @@ queues the note for the next turn. The `display` text is the line that turn
 draws. A blocked event loop does not poll, and presence goes stale. See
 [Maki](../README.md#maki).
 
-OpenCode, Grok, and Vibe claim a file by renaming it before they read it, so
-two processes cannot deliver the same message. An expired claim returns to
-the queue. On every host, a file that cannot be removed after a successful
-delivery may arrive a second time.
+OpenCode, Grok, Vibe, and Claude Code claim a file by renaming it before they
+read it, so two processes cannot deliver the same message. A claim's timestamp
+is refreshed when it is taken, so recovery ages the claim and not the message.
+An expired claim returns to the queue. On every host, a file that cannot be
+removed after a successful delivery may arrive a second time.
 
 OpenCode inserts the note as a peer observation and resumes the session.
 Details are in the [OpenCode](../opencode/README.md) page.

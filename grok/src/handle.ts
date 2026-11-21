@@ -107,10 +107,12 @@ async function drain(input: {
         return "delivered"
       }
       if (input.ownSessions.has(target)) {
-        await appendPending(input.runtime, target, rendered)
+        await appendPending(input.runtime, target, rendered, message.expires)
         return "delivered"
       }
-      return "retry"
+      // addressFor already drops an own-host address we do not own. If a
+      // future change reaches here, no later pass could deliver it either.
+      return "dead"
     },
   })
   const pending = await takePending(input.runtime, input.sessionId)

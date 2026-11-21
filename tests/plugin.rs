@@ -53,7 +53,13 @@ fn exec_tool(reg: &ToolRegistry, name: &str, input: serde_json::Value) -> Result
 #[test]
 fn tools_register() {
     let (_temp, reg, _host) = plugin_host();
-    for name in ["peer_list", "peer_cwd", "peer_send", "peer_broadcast", "peer_spawn"] {
+    for name in [
+        "peer_list",
+        "peer_cwd",
+        "peer_send",
+        "peer_broadcast",
+        "peer_spawn",
+    ] {
         assert!(reg.has(name), "peer tool {name} should register");
     }
 }
@@ -133,9 +139,11 @@ fn the_halves_declare_the_same_tool_descriptions() {
         .expect("opencode plugin source");
     let grok = std::fs::read_to_string(root.join("grok/src/mcp.ts")).expect("grok plugin source");
     let vibe = std::fs::read_to_string(root.join("vibe/src/mcp.ts")).expect("vibe plugin source");
-    let claude = std::fs::read_to_string(root.join("claude/src/mcp.ts")).expect("claude plugin source");
+    let claude =
+        std::fs::read_to_string(root.join("claude/src/mcp.ts")).expect("claude plugin source");
 
     for (tool, prefix) in [
+        ("peer_list", "List peer instances registered"),
         (
             "peer_send",
             "Send an observation or status to one named peer",

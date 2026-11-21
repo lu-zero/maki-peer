@@ -2,13 +2,29 @@
 # Keep the directory rule in step with runtimeDir and resolveSpoolRoot.
 set -eu
 
-if [ -n "${MAKI_PEER_SPOOL:-}" ]; then
-  dir=$(dirname -- "$MAKI_PEER_SPOOL")/claude-peer
-elif [ -d "${HOME}/.maki" ]; then
-  dir="${HOME}/.maki/claude-peer"
+home=${HOME:-}
+if [ -z "$home" ]; then
+  # Resolve it the same way node:os.homedir does in the TypeScript half.
+  if command -v bun >/dev/null 2>&1; then
+    home=$(bun -e 'process.stdout.write(require("node:os").homedir())')
+  else
+    exit 0
+  fi
+fi
+
+spool=${MAKI_PEER_SPOOL:-}
+spool=${spool%/}
+if [ -n "$spool" ]; then
+  dir=$(dirname -- "$spool")/claude-peer
+elif [ -d "$home/.maki" ]; then
+  dir="$home/.maki/claude-peer"
 else
-  state=${XDG_STATE_HOME:-"${HOME}/.local/state"}
-  dir="${state}/maki/claude-peer"
+  state=${XDG_STATE_HOME:-}
+  state=${state%/}
+  if [ -z "$state" ]; then
+    state="$home/.local/state"
+  fi
+  dir="$state/maki/claude-peer"
 fi
 
 if [ "${1:-}" = "--runtime-dir" ]; then
@@ -23,8 +39,8 @@ mkdir -p "$dir"
 
 if command -v bun >/dev/null 2>&1; then
   bun=$(command -v bun)
-elif [ -x "${HOME}/.bun/bin/bun" ]; then
-  bun="${HOME}/.bun/bin/bun"
+elif [ -x "$home/.bun/bin/bun" ]; then
+  bun="$home/.bun/bin/bun"
 else
   exit 0
 fi

@@ -1,5 +1,5 @@
 {
-  "note": "The two halves sanitise a topic the same way, so both test suites read this file and assert the same expectations. The opencode half is the reference: it strips control characters by code point and collapses Unicode whitespace. A case that fails on one side and not the other is a parity defect, not a test to adjust.",
+  "note": "Every host sanitises a topic the same way, so the maki and opencode suites read this file and assert the same expectations. The opencode module is the reference and the other hosts ship byte-identical copies: it strips control characters by code point and collapses Unicode whitespace. A case that fails on one side and not the other is a parity defect, not a test to adjust.",
   "cases": [
     {
       "name": "a plain topic is left alone",

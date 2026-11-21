@@ -10,10 +10,10 @@ import { Spool } from "../src/shared/spool.ts"
 import { handleEvent, hookReply } from "../src/handle.ts"
 import { runtimeDir, spoolRootFromEnv } from "../src/paths.ts"
 import { readSummary } from "../src/summary.ts"
-import { peerIdOf, saveState, type SessionState } from "../src/state.ts"
+import { appendPending, peerIdOf, saveState, takePending, type SessionState } from "../src/state.ts"
 import { callTool } from "../src/tools.ts"
 
-import { refreshAll } from "../src/daemon.ts"
+import { acquireLock, refreshAll, releaseLock, writeHeartbeat } from "../src/daemon.ts"
 
 function tempRoot(): string {
   return mkdtempSync(join(tmpdir(), "maki-peer-grok-"))
@@ -454,4 +454,50 @@ describe("hook script", () => {
       rmSync(root, { recursive: true, force: true })
     }
   }, 20000)
+})
+
+describe("daemon lock", () => {
+  test("one holder at a time, and a new holder after release", async () => {
+    const runtime = join(tempRoot(), "runtime")
+    mkdirSync(runtime, { recursive: true })
+    const lock = join(runtime, "daemon.lock")
+    const heartbeat = join(runtime, "daemon.heartbeat")
+    expect(await acquireLock(lock, heartbeat)).toBe(true)
+    expect(await acquireLock(lock, heartbeat)).toBe(false)
+    releaseLock(lock, heartbeat)
+    expect(existsSync(lock)).toBe(false)
+    expect(await acquireLock(lock, heartbeat)).toBe(true)
+  })
+
+  test("a dead holder with a stale heartbeat does not wedge future daemons", async () => {
+    const runtime = join(tempRoot(), "runtime")
+    mkdirSync(runtime, { recursive: true })
+    const lock = join(runtime, "daemon.lock")
+    const heartbeat = join(runtime, "daemon.heartbeat")
+    writeFileSync(lock, "2147483647")
+    writeFileSync(heartbeat, String(Date.now() - 120_000))
+    expect(await acquireLock(lock, heartbeat)).toBe(true)
+    expect(readFileSync(lock, "utf8")).toBe(String(process.pid))
+    expect(Date.now() - Number(readFileSync(heartbeat, "utf8"))).toBeLessThan(5000)
+    writeHeartbeat(heartbeat)
+    releaseLock(lock, heartbeat)
+  })
+})
+
+describe("parked mail", () => {
+  test("a note past its expiry is not delivered later", async () => {
+    const runtime = join(tempRoot(), "runtime")
+    await appendPending(runtime, session, "still good", Date.now() / 1000 + 60)
+    await appendPending(runtime, session, "too old", Date.now() / 1000 - 60)
+    expect(await takePending(runtime, session)).toEqual(["still good"])
+    expect(await takePending(runtime, session)).toEqual([])
+  })
+
+  test("a legacy note without an expiry is still delivered", async () => {
+    const runtime = join(tempRoot(), "runtime")
+    const path = join(runtime, "pending", `${session}.json`)
+    mkdirSync(join(runtime, "pending"), { recursive: true })
+    writeFileSync(path, JSON.stringify(["legacy"]))
+    expect(await takePending(runtime, session)).toEqual(["legacy"])
+  })
 })

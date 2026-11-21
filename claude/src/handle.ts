@@ -89,7 +89,6 @@ export async function handleEvent(input: {
   claudePid: number
   spoolRoot: string
   runtime: string
-  env?: NodeJS.ProcessEnv
 }): Promise<string> {
   const sessionId = sessionOf(input.event)
   if (!sessionId) return ""
@@ -130,7 +129,9 @@ export async function handleEvent(input: {
   if (name === "PostToolUse" || name === "Stop") {
     const lines = await drain(spool, input.runtime, sessionId)
     reply = hookReply(name as "PostToolUse" | "Stop", lines)
-    if (name === "Stop") state.busy = lines.length > 0
+    // Stop ends the turn. Attaching a note here does not make the agent busy,
+    // and leaving the flag set would show this peer as working while it is idle.
+    if (name === "Stop") state.busy = false
   }
 
   await saveState(input.runtime, state)

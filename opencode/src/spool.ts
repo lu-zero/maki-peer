@@ -1,5 +1,5 @@
-import { existsSync, rmSync, statSync } from "node:fs"
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { existsSync, statSync } from "node:fs"
+import { mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -144,6 +144,15 @@ export class Spool {
     await rename(from, to)
   }
 
+  /**
+   * Rename keeps the source mtime, so a claim would otherwise look as old as
+   * the message and be recovered while its holder is still delivering it.
+   */
+  async touch(path: string): Promise<void> {
+    const now = new Date()
+    await utimes(path, now, now)
+  }
+
   async ensureInbox(id: string): Promise<string> {
     const dir = this.inboxPath(id)
     await mkdir(dir, { recursive: true })
@@ -156,14 +165,5 @@ export class Spool {
 
   async removeDir(path: string): Promise<void> {
     await rm(path, { recursive: true, force: true })
-  }
-
-  /** Best effort for teardown, which cannot await. */
-  removeSync(path: string): void {
-    try {
-      rmSync(path, { force: true })
-    } catch {
-      /* a leftover record ages out once the stale window passes */
-    }
   }
 }

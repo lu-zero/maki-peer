@@ -49,7 +49,7 @@ export function addressFor(message: PeerMessage, addressing: Addressing, host = 
 export function encodeBody(body: unknown): string | undefined {
   if (typeof body === "string") {
     if (body.trim() === "") return undefined
-    return body.length > MAX_BODY_BYTES ? undefined : body
+    return Buffer.byteLength(body, "utf8") > MAX_BODY_BYTES ? undefined : body
   }
   const encoded = JSON.stringify(body ?? null)
   return Buffer.byteLength(encoded) > MAX_BODY_BYTES ? undefined : encoded
@@ -72,6 +72,8 @@ function originalPath(claimPath: string): string {
  * from delivering it twice, which per-process serialisation cannot fix because
  * the two pollers sit in different processes. The suffix stays off `.json`, so
  * neither half's listing, nor the other host, treats a claim as a message.
+ * Rename preserves the source mtime, so the claim is touched before it is read:
+ * recovery ages a claim from that timestamp, not from when the message arrived.
  */
 async function claim(spool: Spool, path: string, instance: string): Promise<string | undefined> {
   const claimPath = `${path}.${instance}${CLAIM_SUFFIX}`
@@ -79,7 +81,9 @@ async function claim(spool: Spool, path: string, instance: string): Promise<stri
     () => true,
     () => false,
   )
-  return won ? claimPath : undefined
+  if (!won) return undefined
+  await spool.touch(claimPath).catch(() => {})
+  return claimPath
 }
 
 /**
@@ -122,6 +126,7 @@ export async function receiveOnce(input: {
   addressing: Addressing
   deliver: Deliver
   onDrop?: (message: PeerMessage, reason: string) => void
+  onRetry?: (message: PeerMessage, reason: string) => void
   /** Honour `session` only when the message names this host. */
   host?: string
 }): Promise<ReceiveReport> {
@@ -135,7 +140,7 @@ export async function receiveOnce(input: {
   report.recovered = await recoverAbandoned({ spool, inboxDir, nowMs })
 
   const now = Math.floor(nowMs / 1000)
-  const pending: { path: string; claimPath: string; value: PeerMessage }[] = []
+  const pending: { claimPath: string; value: PeerMessage }[] = []
   for (const path of await spool.listJson(inboxDir)) {
     const claimPath = await claim(spool, path, instance)
     if (!claimPath) {
@@ -176,7 +181,7 @@ export async function receiveOnce(input: {
       input.onDrop?.(message, "expired")
       continue
     }
-    pending.push({ path, claimPath, value: message })
+    pending.push({ claimPath, value: message })
   }
   pending.sort((a, b) => a.value.created - b.value.created)
 
@@ -194,7 +199,7 @@ export async function receiveOnce(input: {
       outcome = await deliver(item.value, target)
     } catch (error) {
       outcome = "retry"
-      input.onDrop?.(item.value, error instanceof Error ? error.message : String(error))
+      input.onRetry?.(item.value, error instanceof Error ? error.message : String(error))
     }
     if (outcome === "delivered") {
       await spool.remove(item.claimPath).catch(() => {})
