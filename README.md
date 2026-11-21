@@ -1,9 +1,9 @@
 # maki-peer
 
 Local peer discovery and observation messaging between Maki, OpenCode, Grok,
-and Vibe.
+Vibe, and Claude Code.
 
-Four plugins share one spool. A message from one lands in a session of
+Five plugins share one spool. A message from one lands in a session of
 another. The tool descriptions match, so a model that has learned one set
 uses the others the same way. A test fails the build when one description
 drifts.
@@ -25,14 +25,17 @@ broadcast is `same_dir_only`. A peer outside that directory is listed as
 - [OpenCode](opencode/README.md)
 - [Grok](grok/README.md)
 - [Vibe](vibe/README.md)
+- [Claude Code](claude/README.md)
 - [Architecture](docs/architecture.md), the spool and delivery.
+- [Claude Code compatibility](docs/claude-compat.md), design notes.
 
 The spool is `~/.maki/peers` when `~/.maki` is a directory, otherwise
 `$XDG_STATE_HOME/maki/peers` or `~/.local/state/maki/peers`. A live session
 is `owners/<peer-id>.json`. Mail is `inboxes/<peer-id>/<message-id>.json`.
-The prefixes are `mk-`, `oc-`, `gk-`, and `vb-`.
+The prefixes are `mk-`, `oc-`, `gk-`, `vb-`, and `cc-`.
 
-bun must be on `PATH`, or at `~/.bun/bin/bun`, for OpenCode, Grok, and Vibe.
+bun must be on `PATH`, or at `~/.bun/bin/bun`, for OpenCode, Grok, Vibe, and
+Claude Code.
 
 ### Maki
 
@@ -86,6 +89,16 @@ Tools: `mcp_peer.peer_list`, `mcp_peer.peer_cwd`, `mcp_peer.peer_send`,
 `mcp_peer.peer_broadcast`. Install and delivery are in the
 [Vibe](vibe/README.md) page.
 
+### Claude Code
+
+```sh
+claude --plugin-dir /absolute/path/to/maki-peer/claude
+```
+
+The tools use Claude's scoped MCP names, such as
+`mcp__plugin_maki-peer_peer__peer_list`. Install, optional channel delivery,
+and the limits are in the [Claude Code](claude/README.md) page.
+
 ## Use
 
 A message is an observation or a status. It is data from another agent. It
@@ -111,6 +124,7 @@ for a peer that reports none.
 | [OpenCode](opencode/README.md) | `peer_list`          | `peer_cwd`             | `peer_send`          | `peer_broadcast`           |
 | [Grok](grok/README.md)         | `peer__peer_list`    | `peer__peer_cwd`       | `peer__peer_send`    | `peer__peer_broadcast`     |
 | [Vibe](vibe/README.md)         | `mcp_peer.peer_list` | `mcp_peer.peer_cwd`    | `mcp_peer.peer_send` | `mcp_peer.peer_broadcast`  |
+| [Claude Code](claude/README.md) | `mcp__plugin_maki-peer_peer__peer_list` | `mcp__plugin_maki-peer_peer__peer_cwd` | `mcp__plugin_maki-peer_peer__peer_send` | `mcp__plugin_maki-peer_peer__peer_broadcast` |
 
 `/peer` and `peer_spawn` exist only on Maki. `peer_spawn` starts a detached
 `tmux` session. The model spec is `provider/model-id`.

@@ -1,13 +1,14 @@
 # Architecture
 
-Four hosts share one local spool. Each one publishes a presence record and
+Five hosts share one local spool. Each one publishes a presence record and
 writes mail as files. The recipient host reads its own inbox and delivers
 the text into its own session.
 
 ![Four hosts share one spool](architecture.svg)
 
 The hosts are [Maki](../README.md#maki), [OpenCode](../opencode/README.md),
-[Grok](../grok/README.md), and [Vibe](../vibe/README.md).
+[Grok](../grok/README.md), [Vibe](../vibe/README.md), and
+[Claude Code](../claude/README.md).
 
 ## Spool
 
@@ -35,6 +36,7 @@ Ids and names:
 | OpenCode | `oc-` plus a hash of the session | `opencode-` plus eight hex |
 | Grok | `gk-` plus a hash of the session | `grok-` plus eight hex |
 | Vibe | `vb-` plus a hash of the session | `vibe-` plus eight hex |
+| Claude Code | `cc-` plus a hash of the session | `claude-` plus eight hex |
 
 A title is display data. It is not an address. `peer_list` abbreviates ids
 to the shortest unique prefix, never shorter than four characters, and tags
@@ -92,6 +94,13 @@ expire after 300 seconds. The hook text is cut at 9,000 characters. Details
 are in the [Vibe](../vibe/README.md) page and in
 [vibe/upstream-issue.md](../vibe/upstream-issue.md), the request the
 `pre_agent` turn-start hook answers.
+
+Claude Code attaches the note to a tool result or the end of a turn through
+`hookSpecificOutput.additionalContext`. A hook cannot start a turn, so idle
+mail waits. With `MAKI_PEER_CHANNELS=1` the MCP server also polls the inbox and
+emits a channel notification, which reaches the session while hooks are quiet.
+Claims keep the two paths from delivering the same note. Details are in the
+[Claude Code](../claude/README.md) page.
 
 Records from another host are sanitised on the way in. A status outside
 `idle`, `working`, and `needs_input` reads as idle. The shared examples are

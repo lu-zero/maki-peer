@@ -1,0 +1,32 @@
+#!/bin/sh
+# Keep the directory rule in step with runtimeDir and resolveSpoolRoot.
+set -eu
+
+if [ -n "${MAKI_PEER_SPOOL:-}" ]; then
+  dir=$(dirname -- "$MAKI_PEER_SPOOL")/claude-peer
+elif [ -d "${HOME}/.maki" ]; then
+  dir="${HOME}/.maki/claude-peer"
+else
+  state=${XDG_STATE_HOME:-"${HOME}/.local/state"}
+  dir="${state}/maki/claude-peer"
+fi
+
+if [ "${1:-}" = "--runtime-dir" ]; then
+  printf '%s\n' "$dir"
+  exit 0
+fi
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+root=$(CDPATH= cd -- "$here/.." && pwd)
+payload=$(cat)
+mkdir -p "$dir"
+
+if command -v bun >/dev/null 2>&1; then
+  bun=$(command -v bun)
+elif [ -x "${HOME}/.bun/bin/bun" ]; then
+  bun="${HOME}/.bun/bin/bun"
+else
+  exit 0
+fi
+
+printf '%s' "$payload" | CLAUDE_PID="$PPID" "$bun" "$root/src/hook.ts"

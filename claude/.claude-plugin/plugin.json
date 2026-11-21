@@ -1,0 +1,10 @@
+{
+  "name": "maki-peer",
+  "description": "Local peer discovery and observation messaging with Maki, OpenCode, Grok, and Vibe",
+  "version": "0.1.0",
+  "author": {
+    "name": "Luca Barbato"
+  },
+  "repository": "https://github.com/lu-zero/maki-peer",
+  "license": "MIT"
+}

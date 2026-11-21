@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "peer": {
+      "command": "sh",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/mcp"]
+    }
+  }
+}

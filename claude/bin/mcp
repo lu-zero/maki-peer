@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if command -v bun >/dev/null 2>&1; then
+  bun=$(command -v bun)
+elif [ -x "${HOME}/.bun/bin/bun" ]; then
+  bun="${HOME}/.bun/bin/bun"
+else
+  echo "maki-peer: bun is not on PATH" >&2
+  exit 1
+fi
+exec "$bun" "$here/../src/mcp.ts"
