@@ -56,11 +56,11 @@ describe("spool writes", () => {
     const root = tempRoot()
     const spool = new Spool(root)
     await spool.prepare()
-    const path = spool.ownerPath("peer-1")
-    await spool.write(path, { protocol: 1, id: "peer-1" })
-    await spool.write(path, { protocol: 1, id: "peer-1", name: "second" })
-    expect(await spool.read(path)).toEqual({ protocol: 1, id: "peer-1", name: "second" })
-    expect(owners(root)).toEqual(["peer-1.json"])
+    const path = spool.ownerPath("mk-1")
+    await spool.write(path, { protocol: 1, id: "mk-1" })
+    await spool.write(path, { protocol: 1, id: "mk-1", name: "second" })
+    expect(await spool.read(path)).toEqual({ protocol: 1, id: "mk-1", name: "second" })
+    expect(owners(root)).toEqual(["mk-1.json"])
   })
 
   test("reports a missing or unparsable record as undefined rather than throwing", async () => {
@@ -75,7 +75,7 @@ describe("spool writes", () => {
 
 describe("record parsing", () => {
   test("accepts ids maki would accept and rejects the rest", () => {
-    expect(validId("peer-6ad0c541-38dcc5aadf6-6977506e")).toBe(true)
+    expect(validId("mk-6ad0c541-38dcc5aadf6-6977506e")).toBe(true)
     expect(validId("oc-0123456789abcdef")).toBe(true)
     expect(validId("ses_9c1b08")).toBe(true)
     expect(validId("not/a/peer")).toBe(false)
@@ -269,11 +269,11 @@ describe("sender identity", () => {
   })
 
   test("a name is the host plus eight hex of the peer id", () => {
-    expect(nameFromPeerID("maki", "peer-6ac003aa-28e1e6e9573-7ded469b")).toBe("maki-6ac003aa")
+    expect(nameFromPeerID("maki", "mk-6ac003aa-28e1e6e9573-7ded469b")).toBe("maki-6ac003aa")
     expect(nameFromPeerID("opencode", "oc-072f2841ee0e9743")).toBe("opencode-072f2841")
     // The width is a shared constant, not a habit that drifts per half.
-    expect(nameFromPeerID("maki", "peer-6ac003aa")).toBe(`maki-${"6ac003aa".slice(0, NAME_HEX_WIDTH)}`)
-    expect(nameFromPeerID("maki", "peer-6ac003aa")).toHaveLength("maki".length + 1 + NAME_HEX_WIDTH)
+    expect(nameFromPeerID("maki", "mk-6ac003aa")).toBe(`maki-${"6ac003aa".slice(0, NAME_HEX_WIDTH)}`)
+    expect(nameFromPeerID("maki", "mk-6ac003aa")).toHaveLength("maki".length + 1 + NAME_HEX_WIDTH)
   })
 })
 
@@ -282,9 +282,9 @@ describe("delivery", () => {
     const root = tempRoot()
     const host = fakeHost(root, "opencode", "ses_oc_one")
     await host.pump()
-    writeRecord(root, host.peerID, makiRecord({ id: "m1", from: "peer-maki", to: host.peerID, body: "hello", session: "some-maki-uuid" }))
+    writeRecord(root, host.peerID, makiRecord({ id: "m1", from: "mk-maki", to: host.peerID, body: "hello", session: "some-maki-uuid" }))
     await host.pump()
-    expect(host.delivered).toEqual([{ sessionID: "ses_oc_one", text: "[peer peer-maki] hello" }])
+    expect(host.delivered).toEqual([{ sessionID: "ses_oc_one", text: "[peer mk-maki] hello" }])
     expect(inbox(root, host.peerID)).toEqual([])
   })
 
@@ -292,9 +292,9 @@ describe("delivery", () => {
     const root = tempRoot()
     const host = fakeHost(root, "opencode", "ses_oc_one")
     await host.pump()
-    writeRecord(root, host.peerID, makiRecord({ id: "m1", from: "peer-maki", to: host.peerID, body: "no address" }))
+    writeRecord(root, host.peerID, makiRecord({ id: "m1", from: "mk-maki", to: host.peerID, body: "no address" }))
     await host.pump()
-    expect(host.delivered.map((item) => item.text)).toEqual(["[peer peer-maki] no address"])
+    expect(host.delivered.map((item) => item.text)).toEqual(["[peer mk-maki] no address"])
   })
 
   test("an address for a session this host no longer runs is dropped, not retried", async () => {
@@ -304,7 +304,7 @@ describe("delivery", () => {
     writeRecord(
       root,
       host.peerID,
-      makiRecord({ id: "m1", from: "peer-opencode", to: host.peerID, body: "gone", session: "ses_gone", origin: "opencode" }),
+      makiRecord({ id: "m1", from: "mk-opencode", to: host.peerID, body: "gone", session: "ses_gone", origin: "opencode" }),
     )
     await host.pump()
     expect(host.delivered).toEqual([])
@@ -321,10 +321,10 @@ describe("delivery", () => {
     writeRecord(
       root,
       host.peerID,
-      makiRecord({ id: "m1", from: "peer-opencode", to: host.peerID, body: "cross", session: "ses_b", origin: "opencode" }),
+      makiRecord({ id: "m1", from: "mk-opencode", to: host.peerID, body: "cross", session: "ses_b", origin: "opencode" }),
     )
     await host.pump()
-    expect(host.delivered).toEqual([{ sessionID: "ses_b", text: "[peer peer-opencode] cross" }])
+    expect(host.delivered).toEqual([{ sessionID: "ses_b", text: "[peer mk-opencode] cross" }])
     expect(inbox(root, host.peerID)).toEqual([])
     expect(secondPeer?.id).not.toBe(host.peerID)
   })
@@ -333,7 +333,7 @@ describe("delivery", () => {
     const root = tempRoot()
     const host = fakeHost(root, "opencode", "ses_oc_one")
     await host.pump()
-    writeRecord(root, host.peerID, makiRecord({ id: "m1", from: "peer-maki", to: host.peerID, body: "old", ttl: -10 }))
+    writeRecord(root, host.peerID, makiRecord({ id: "m1", from: "mk-maki", to: host.peerID, body: "old", ttl: -10 }))
     await host.pump()
     expect(host.delivered).toEqual([])
     expect(inbox(root, host.peerID)).toEqual([])
@@ -343,7 +343,7 @@ describe("delivery", () => {
     const root = tempRoot()
     const host = fakeHost(root, "opencode", "ses_oc_one")
     await host.pump()
-    writeRecord(root, host.peerID, makiRecord({ id: "m1", from: "peer-maki", to: "someone-else", body: "not mine" }))
+    writeRecord(root, host.peerID, makiRecord({ id: "m1", from: "mk-maki", to: "someone-else", body: "not mine" }))
     await host.pump()
     expect(host.delivered).toEqual([])
     // A misfiled record can never be delivered by any poller, since each reads
@@ -397,13 +397,13 @@ describe("cross-host exchange", () => {
     const root = tempRoot()
     const host = fakeHost(root, "opencode", "ses_oc_one")
     await host.pump()
-    writeRecord(root, "unused", makiRecord({ id: "m1", from: "peer-maki", to: host.peerID, body: "x" }))
-    const makiPath = join(root, "owners", "peer-maki.json")
+    writeRecord(root, "unused", makiRecord({ id: "m1", from: "mk-maki", to: host.peerID, body: "x" }))
+    const makiPath = join(root, "owners", "mk-maki.json")
     writeFileSync(
       makiPath,
       JSON.stringify({
         protocol: 1,
-        id: "peer-maki",
+        id: "mk-maki",
         name: "maki-peer-6ad0c541",
         started: Math.floor(Date.now() / 1000),
         last_seen: Math.floor(Date.now() / 1000),
@@ -412,7 +412,7 @@ describe("cross-host exchange", () => {
       }),
     )
     const all = await host.registry.all()
-    const maki = all.find((owner) => owner.id === "peer-maki")
+    const maki = all.find((owner) => owner.id === "mk-maki")
     expect(maki?.status).toBe("working")
     expect(maki?.model).toBe("zai/glm-5.3-flash")
     expect(maki?.origin?.host).toBeUndefined()
@@ -433,7 +433,7 @@ describe("peer resolution", () => {
   })
   const maki = (): Owner => ({
     protocol: 1,
-    id: "peer-6acbcdda-34204583840-7fa08a12",
+    id: "mk-6acbcdda-34204583840-7fa08a12",
     name: "maki-peer-6acbcdda",
     started: 0,
     last_seen: now,
@@ -449,16 +449,16 @@ describe("peer resolution", () => {
 
   test("takes a full name, colon and all", () => {
     expect(id(resolvePeer([oc(), maki()], "opencode:3H0d7w", now))).toBe("oc-072f2841ee0e9743")
-    expect(id(resolvePeer([oc(), maki()], "maki-peer-6acbcdda", now))).toBe("peer-6acbcdda-34204583840-7fa08a12")
+    expect(id(resolvePeer([oc(), maki()], "maki-peer-6acbcdda", now))).toBe("mk-6acbcdda-34204583840-7fa08a12")
   })
 
   test("takes the bare fragment a reader copies out of the list", () => {
     expect(id(resolvePeer([oc(), maki()], "3H0d7w", now))).toBe("oc-072f2841ee0e9743")
-    expect(id(resolvePeer([oc(), maki()], "6acbcdda", now))).toBe("peer-6acbcdda-34204583840-7fa08a12")
+    expect(id(resolvePeer([oc(), maki()], "6acbcdda", now))).toBe("mk-6acbcdda-34204583840-7fa08a12")
   })
 
   test("takes an id prefix", () => {
-    expect(id(resolvePeer([oc(), maki()], "peer-6acbc", now))).toBe("peer-6acbcdda-34204583840-7fa08a12")
+    expect(id(resolvePeer([oc(), maki()], "mk-6acbc", now))).toBe("mk-6acbcdda-34204583840-7fa08a12")
   })
 
   test("answers a typo with the alternatives rather than claiming the peer is gone", () => {
@@ -496,23 +496,23 @@ describe("peer resolution", () => {
   test("never turns an exited pile into a wall of text", () => {
     const graveyard = Array.from({ length: 200 }, (_, index) => ({
       ...oc(now - 3600),
-      id: `peer-dead-${index}`,
+      id: `mk-dead-${index}`,
       name: `maki-peer-dead${index}`,
     }))
-    const message = error(resolvePeer([...graveyard, oc(), maki()], "peer-dead-", now))
-    expect(message).toStartWith("peer maki-peer-dead0 [peer-dead-0] last refreshed 3600s ago")
+    const message = error(resolvePeer([...graveyard, oc(), maki()], "mk-dead-", now))
+    expect(message).toStartWith("peer maki-peer-dead0 [mk-dead-0] last refreshed 3600s ago")
     expect(message).toContain("200 exited peers match")
     expect(message.split(" ").length).toBeLessThan(30)
   })
 
   test("prefers the live peer over an exited one matching the same fragment", () => {
-    const dead = { ...oc(now - 3600), id: "peer-dead", name: "maki-peer-6ad1d6c6" }
-    expect(id(resolvePeer([dead, maki(), oc()], "6acbcdda", now))).toBe("peer-6acbcdda-34204583840-7fa08a12")
+    const dead = { ...oc(now - 3600), id: "mk-dead", name: "maki-peer-6ad1d6c6" }
+    expect(id(resolvePeer([dead, maki(), oc()], "6acbcdda", now))).toBe("mk-6acbcdda-34204583840-7fa08a12")
   })
 
   test("answers one exited peer by age even when dead records share its name", () => {
-    const dead = { ...oc(now - 90), id: "peer-1", name: "maki-peer-6ad1d6c6" }
-    const older = { ...oc(now - 400), id: "peer-2", name: "maki-peer-6ad1d6c6" }
+    const dead = { ...oc(now - 90), id: "mk-1", name: "maki-peer-6ad1d6c6" }
+    const older = { ...oc(now - 400), id: "mk-2", name: "maki-peer-6ad1d6c6" }
     expect(error(resolvePeer([dead, older, oc(), maki()], "6ad1d6c6", now))).toContain("last refreshed 90s ago")
   })
 })
@@ -931,7 +931,7 @@ describe("mark and sweep", () => {
 
   test("marks and deletes a record that is still long past the horizon", async () => {
     const { spool, records } = await setup()
-    await write(spool, "peer-dead", now - 3600)
+    await write(spool, "mk-dead", now - 3600)
     const report = await sweepStaleOwners({ spool, records: await records(), ownIDs: new Set(), now })
     expect(report.marked).toBe(1)
     expect(report.deleted).toBe(1)
@@ -940,23 +940,23 @@ describe("mark and sweep", () => {
 
   test("keeps a record that refreshed between the mark and the sweep", async () => {
     const { spool, records } = await setup()
-    await write(spool, "peer-slow", now - 3600)
+    await write(spool, "mk-slow", now - 3600)
     const stale = await records()
 
     // The peer comes back between the two phases of one pass.
-    await write(spool, "peer-slow", now)
+    await write(spool, "mk-slow", now)
 
     const report = await sweepStaleOwners({ spool, records: stale, ownIDs: new Set(), now })
     expect(report.deleted).toBe(0)
     expect(report.kept).toBe(1)
-    expect((await records()).map((owner) => owner.id)).toEqual(["peer-slow"])
+    expect((await records()).map((owner) => owner.id)).toEqual(["mk-slow"])
   })
 
   test("takes an inbox whose owner is gone and that holds nothing", async () => {
     const { spool } = await setup()
     // The churn era left directories behind: an id that no longer has a record
     // and nothing in it. That is cruft and nothing else.
-    const orphan = await spool.ensureInbox("peer-gone")
+    const orphan = await spool.ensureInbox("mk-gone")
     const removed = await sweepOrphanInboxes({ spool, ownIDs: new Set() })
     expect(removed).toBe(1)
     expect(existsSync(orphan)).toBe(false)
@@ -964,7 +964,7 @@ describe("mark and sweep", () => {
 
   test("leaves an inbox that still holds a message, owner or no owner", async () => {
     const { spool } = await setup()
-    const orphan = await spool.ensureInbox("peer-gone")
+    const orphan = await spool.ensureInbox("mk-gone")
     await spool.write(join(orphan, "m1.json"), { body: "waiting" })
     const removed = await sweepOrphanInboxes({ spool, ownIDs: new Set() })
     expect(removed).toBe(0)
@@ -973,7 +973,7 @@ describe("mark and sweep", () => {
 
   test("leaves a claimed message alone, because a claim is a file in flight", async () => {
     const { spool } = await setup()
-    const orphan = await spool.ensureInbox("peer-gone")
+    const orphan = await spool.ensureInbox("mk-gone")
     await spool.write(join(orphan, "m1.json.opencode-1-abc.claim"), { body: "in flight" })
     const removed = await sweepOrphanInboxes({ spool, ownIDs: new Set() })
     expect(removed).toBe(0)
@@ -982,8 +982,8 @@ describe("mark and sweep", () => {
 
   test("leaves an inbox whose owner is live, even when it holds nothing", async () => {
     const { spool } = await setup()
-    await write(spool, "peer-live", now - 2)
-    const live = await spool.ensureInbox("peer-live")
+    await write(spool, "mk-live", now - 2)
+    const live = await spool.ensureInbox("mk-live")
     const removed = await sweepOrphanInboxes({ spool, ownIDs: new Set() })
     expect(removed).toBe(0)
     expect(existsSync(live)).toBe(true)
@@ -999,8 +999,8 @@ describe("mark and sweep", () => {
 
   test("takes the inbox with a record it deletes, message and all", async () => {
     const { spool, records } = await setup()
-    await write(spool, "peer-dead", now - 3600)
-    const inbox = await spool.ensureInbox("peer-dead")
+    await write(spool, "mk-dead", now - 3600)
+    const inbox = await spool.ensureInbox("mk-dead")
     await spool.write(join(inbox, "m1.json"), { body: "hello" })
     const report = await sweepStaleOwners({ spool, records: await records(), ownIDs: new Set(), now })
     expect(report.deleted).toBe(1)
@@ -1022,7 +1022,7 @@ describe("mark and sweep", () => {
   test("never marks or deletes this host's own records", async () => {
     const { spool, records } = await setup()
     await write(spool, "oc-self", now - 3600)
-    await write(spool, "peer-dead", now - 3600)
+    await write(spool, "mk-dead", now - 3600)
     const report = await sweepStaleOwners({ spool, records: await records(), ownIDs: new Set(["oc-self"]), now })
     expect(report.marked).toBe(1)
     expect(report.deleted).toBe(1)
@@ -1038,31 +1038,31 @@ describe("mark and sweep", () => {
 
   test("leaves an unreadable mark file in place rather than clearing the queue", async () => {
     const { root, spool, records } = await setup()
-    await write(spool, "peer-dead", now - 3600)
+    await write(spool, "mk-dead", now - 3600)
     const torn = spool.gcMarkPath("torn")
-    await spool.write(torn, [{ id: "peer-dead", last_seen: now - 3600 }])
+    await spool.write(torn, [{ id: "mk-dead", last_seen: now - 3600 }])
     // A second writer truncated its file, which is what a torn write looks like.
-    writeFileSync(torn, '[{"id":"peer-dead","last_se')
+    writeFileSync(torn, '[{"id":"mk-dead","last_se')
 
     // No records of our own, so the only mark in play is the torn one.
     const report = await sweepStaleOwners({ spool, records: [], ownIDs: new Set(), now })
     expect(report.unreadable).toBe(1)
     expect(report.deleted).toBe(0)
-    expect(owners(root)).toContain("peer-dead.json")
+    expect(owners(root)).toContain("mk-dead.json")
     expect(readdirSync(join(root, "gc"))).toEqual(["torn.json"])
   })
 
   test("removes a mark file it acted on, so the queue does not grow", async () => {
     const { root, spool, records } = await setup()
-    await write(spool, "peer-dead", now - 3600)
+    await write(spool, "mk-dead", now - 3600)
     await sweepStaleOwners({ spool, records: await records(), ownIDs: new Set(), markName: "first", now })
     expect(readdirSync(join(root, "gc"))).toEqual([])
   })
 
   test("processes a mark written by the other host", async () => {
     const { spool, records } = await setup()
-    await write(spool, "peer-dead", now - 3600)
-    await spool.write(spool.gcMarkPath("from-maki"), [{ id: "peer-dead", last_seen: now - 3600 }])
+    await write(spool, "mk-dead", now - 3600)
+    await spool.write(spool.gcMarkPath("from-maki"), [{ id: "mk-dead", last_seen: now - 3600 }])
     const report = await sweepStaleOwners({ spool, records: [], ownIDs: new Set(), now })
     expect(report.deleted).toBe(1)
     expect(await records()).toEqual([])
@@ -1078,7 +1078,7 @@ describe("claims", () => {
     const mine = fakeHost(r, "opencode", "ses_claimer")
     const path = join(r, "inboxes", mine.peerID, "m1.json")
     mkdirSync(join(r, "inboxes", mine.peerID), { recursive: true })
-    writeFileSync(path, JSON.stringify(makiRecord({ id: "m1", from: "peer-maki", to: mine.peerID, body: "once" })))
+    writeFileSync(path, JSON.stringify(makiRecord({ id: "m1", from: "mk-maki", to: mine.peerID, body: "once" })))
     // The other poller claimed it first and is mid delivery.
     const claimed = claimPath(r, mine.peerID, "m1", "opencode-other-1")
     renameSync(path, claimed)
@@ -1093,13 +1093,13 @@ describe("claims", () => {
     const mine = fakeHost(r, "opencode", "ses_claimer")
     const claimed = claimPath(r, mine.peerID, "m1", "opencode-dead-1")
     mkdirSync(join(r, "inboxes", mine.peerID), { recursive: true })
-    writeFileSync(claimed, JSON.stringify(makiRecord({ id: "m1", from: "peer-maki", to: mine.peerID, body: "once" })))
+    writeFileSync(claimed, JSON.stringify(makiRecord({ id: "m1", from: "mk-maki", to: mine.peerID, body: "once" })))
     // Nothing has held this claim for a long time: its poller is gone.
     const stale = new Date(Date.now() - 120_000)
     utimesSync(claimed, stale, stale)
 
     await mine.pump()
-    expect(mine.delivered.map((item) => item.text)).toEqual(["[peer peer-maki] once"])
+    expect(mine.delivered.map((item) => item.text)).toEqual(["[peer mk-maki] once"])
     expect(existsSync(claimed)).toBe(false)
   })
 
@@ -1108,7 +1108,7 @@ describe("claims", () => {
     const mine = fakeHost(r, "opencode", "ses_claimer")
     const claimed = claimPath(r, mine.peerID, "m1", "opencode-other-1")
     mkdirSync(join(r, "inboxes", mine.peerID), { recursive: true })
-    writeFileSync(claimed, JSON.stringify(makiRecord({ id: "m1", from: "peer-maki", to: mine.peerID, body: "once" })))
+    writeFileSync(claimed, JSON.stringify(makiRecord({ id: "m1", from: "mk-maki", to: mine.peerID, body: "once" })))
 
     await mine.pump()
     expect(mine.delivered).toEqual([])
@@ -1119,13 +1119,13 @@ describe("claims", () => {
     const r = tempRoot()
     const mine = fakeHost(r, "opencode", "ses_claimer")
     mine.deliverOverride = () => "retry"
-    writeRecord(r, mine.peerID, makiRecord({ id: "m1", from: "peer-maki", to: mine.peerID, body: "once" }))
+    writeRecord(r, mine.peerID, makiRecord({ id: "m1", from: "mk-maki", to: mine.peerID, body: "once" }))
     await mine.pump()
     expect(files(join(r, "inboxes", mine.peerID))).toEqual(["m1.json"])
 
     mine.deliverOverride = undefined
     await mine.pump()
-    expect(mine.delivered.map((item) => item.text)).toEqual(["[peer peer-maki] once"])
+    expect(mine.delivered.map((item) => item.text)).toEqual(["[peer mk-maki] once"])
     expect(inbox(r, mine.peerID)).toEqual([])
   })
 
@@ -1133,7 +1133,7 @@ describe("claims", () => {
     const r = tempRoot()
     const mine = fakeHost(r, "opencode", "ses_claimer")
     mine.deliverOverride = () => "retry"
-    writeRecord(r, mine.peerID, makiRecord({ id: "m1", from: "peer-maki", to: mine.peerID, body: "later" }))
+    writeRecord(r, mine.peerID, makiRecord({ id: "m1", from: "mk-maki", to: mine.peerID, body: "later" }))
     const path = join(r, "inboxes", mine.peerID, "m1.json")
     chmodSync(path, 0o000)
 
@@ -1147,7 +1147,7 @@ describe("claims", () => {
     chmodSync(path, 0o644)
     mine.deliverOverride = undefined
     await mine.pump()
-    expect(mine.delivered.map((item) => item.text)).toEqual(["[peer peer-maki] later"])
+    expect(mine.delivered.map((item) => item.text)).toEqual(["[peer mk-maki] later"])
   })
 
   test("another poller's fresh claim is never read, so its content is never this poller's problem", async () => {

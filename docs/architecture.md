@@ -31,7 +31,7 @@ Ids and names:
 
 | Host | Id | Name |
 | --- | --- | --- |
-| Maki | `peer-` plus the session storage id | `maki-` plus the first eight characters of that id |
+| Maki | `mk-` plus the session storage id | `maki-` plus the first eight characters of that id |
 | OpenCode | `oc-` plus a hash of the session | `opencode-` plus eight hex |
 | Grok | `gk-` plus a hash of the session | `grok-` plus eight hex |
 | Vibe | `vb-` plus a hash of the session | `vibe-` plus eight hex |

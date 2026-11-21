@@ -59,7 +59,7 @@ end
 -- other agents keep working. One record per live session, like the opencode
 -- half, whose ids are the same hash of the same thing.
 local function peer_id_for(session_id)
-  return "peer-" .. session_id
+  return "mk-" .. session_id
 end
 
 local function session_status(session_id)

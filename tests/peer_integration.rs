@@ -300,7 +300,7 @@ fn inbound(to: &str, body: &str, session: Option<&str>, origin: Option<&str>) ->
     let mut message = json!({
         "protocol": 1,
         "id": format!("remote-{body}"),
-        "from": "peer-remote",
+        "from": "mk-remote",
         "from_name": "remote-host",
         "to": to,
         "kind": "observation",
@@ -642,7 +642,7 @@ fn the_list_marks_local_and_same_dir() {
         .find(|line| line.contains("(you)"))
         .unwrap_or_else(|| panic!("got: {out}"));
     assert!(
-        own.starts_with("- peer  "),
+        own.starts_with("- mk-"),
         "the id column is the shortest non-colliding prefix, got: {own}"
     );
     assert!(
@@ -724,7 +724,7 @@ fn a_record_that_cannot_be_read_yet_is_left_for_the_next_pass() {
     let body = serde_json::to_vec(&json!({
         "protocol": 1,
         "id": "late-1",
-        "from": "peer-remote",
+        "from": "mk-remote",
         "from_name": "remote-host",
         "to": id,
         "kind": "observation",
@@ -1000,7 +1000,7 @@ fn a_foreign_host_session_id_is_ignored_and_the_local_session_is_used() {
     // The inbox belongs to the session the record names, so unaddressed mail
     // is for that session even while another session of the host is active.
     let own_session: MakiId = id
-        .strip_prefix("peer-")
+        .strip_prefix("mk-")
         .expect("record id carries the session id")
         .parse()
         .unwrap();

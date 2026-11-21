@@ -30,7 +30,7 @@ broadcast is `same_dir_only`. A peer outside that directory is listed as
 The spool is `~/.maki/peers` when `~/.maki` is a directory, otherwise
 `$XDG_STATE_HOME/maki/peers` or `~/.local/state/maki/peers`. A live session
 is `owners/<peer-id>.json`. Mail is `inboxes/<peer-id>/<message-id>.json`.
-The prefixes are `peer-`, `oc-`, `gk-`, and `vb-`.
+The prefixes are `mk-`, `oc-`, `gk-`, and `vb-`.
 
 bun must be on `PATH`, or at `~/.bun/bin/bun`, for OpenCode, Grok, and Vibe.
 

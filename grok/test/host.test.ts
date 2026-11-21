@@ -151,7 +151,7 @@ describe("delivery", () => {
     const peer = peerIdOf(session)
     const record = messageRecord({
       id: "m-foreign",
-      from: "peer-aaaaaaaa",
+      from: "mk-aaaaaaaa",
       fromName: "maki-aaaaaaaa",
       to: peer,
       body: "hello from maki",
@@ -163,7 +163,7 @@ describe("delivery", () => {
     const reply = await emit(box, { hook_event_name: "Stop", sessionId: session, cwd: "/work" })
     const parsed = JSON.parse(reply) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } }
     expect(parsed.hookSpecificOutput.hookEventName).toBe("Stop")
-    expect(parsed.hookSpecificOutput.additionalContext).toContain("[peer maki-aaaaaaaa peer-aaaaaaaa] hello from maki")
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("[peer maki-aaaaaaaa mk-aaaaaaaa] hello from maki")
     expect(files(spool.inboxPath(peer)).filter((name) => name.endsWith(".json"))).toEqual([])
     expect(parseOwner(read(spool.ownerPath(peer)))?.status).toBe("working")
   })
@@ -211,9 +211,9 @@ describe("tools", () => {
     const spool = new Spool(box.spoolRoot)
     await emit(box, { hook_event_name: "SessionStart", sessionId: session, cwd: "/work" })
     const now = Math.floor(Date.now() / 1000)
-    await spool.write(spool.ownerPath("peer-target"), {
+    await spool.write(spool.ownerPath("mk-target"), {
       protocol: 1,
-      id: "peer-target",
+      id: "mk-target",
       name: "maki-target1",
       started: now,
       last_seen: now,
@@ -227,9 +227,9 @@ describe("tools", () => {
       session: "should-not-stick",
     })
     expect(sent.error).toBe(false)
-    const inbox = files(spool.inboxPath("peer-target")).filter((name) => name.endsWith(".json"))
+    const inbox = files(spool.inboxPath("mk-target")).filter((name) => name.endsWith(".json"))
     expect(inbox.length).toBe(1)
-    const queued = read(join(spool.inboxPath("peer-target"), inbox[0] ?? ""))
+    const queued = read(join(spool.inboxPath("mk-target"), inbox[0] ?? ""))
     expect(queued.origin).toEqual({ host: "grok" })
     expect(queued.session).toBeUndefined()
     expect(queued.from).toBe(peerIdOf(session))
@@ -240,9 +240,9 @@ describe("tools", () => {
     const spool = new Spool(box.spoolRoot)
     await emit(box, { hook_event_name: "SessionStart", sessionId: session, cwd: "/work" })
     const now = Math.floor(Date.now() / 1000)
-    await spool.write(spool.ownerPath("peer-target"), {
+    await spool.write(spool.ownerPath("mk-target"), {
       protocol: 1,
-      id: "peer-target",
+      id: "mk-target",
       name: "maki-target1",
       started: now,
       last_seen: now,
@@ -251,21 +251,21 @@ describe("tools", () => {
       origin: { host: "maki" },
     })
     const woken = await callTool(spool, box.runtime, { pid, sessionId: session }, "peer_send", {
-      peer_id: "peer-target",
+      peer_id: "mk-target",
       message: "wake up",
       wake: true,
     })
     expect(woken.error).toBe(false)
     const plain = await callTool(spool, box.runtime, { pid, sessionId: session }, "peer_send", {
-      peer_id: "peer-target",
+      peer_id: "mk-target",
       message: "no wake",
     })
     expect(plain.error).toBe(false)
-    const inbox = files(spool.inboxPath("peer-target")).filter((name) => name.endsWith(".json"))
+    const inbox = files(spool.inboxPath("mk-target")).filter((name) => name.endsWith(".json"))
     expect(inbox.length).toBe(2)
     const byBody = new Map(
       inbox.map((name) => {
-        const m = read(join(spool.inboxPath("peer-target"), name)) as Record<string, unknown>
+        const m = read(join(spool.inboxPath("mk-target"), name)) as Record<string, unknown>
         return [m.body, m]
       }),
     )
@@ -301,8 +301,8 @@ describe("tools", () => {
     await emit(box, { hook_event_name: "SessionStart", sessionId: session, cwd: "/work" })
     const now = Math.floor(Date.now() / 1000)
     for (const [id, cwd] of [
-      ["peer-same", "/work"],
-      ["peer-other", "/elsewhere"],
+      ["mk-same", "/work"],
+      ["mk-other", "/elsewhere"],
     ] as const) {
       await spool.write(spool.ownerPath(id), {
         protocol: 1,
@@ -320,8 +320,8 @@ describe("tools", () => {
       same_dir_only: true,
     })
     expect(limited.text).toBe("Queued 1 peer messages.")
-    expect(files(spool.inboxPath("peer-same")).filter((name) => name.endsWith(".json")).length).toBe(1)
-    expect(files(spool.inboxPath("peer-other"))).toEqual([])
+    expect(files(spool.inboxPath("mk-same")).filter((name) => name.endsWith(".json")).length).toBe(1)
+    expect(files(spool.inboxPath("mk-other"))).toEqual([])
   })
 
   test("two sessions on one process are not guessed", async () => {
@@ -396,7 +396,7 @@ describe("hook script", () => {
         join(spool.inboxPath(peerIdOf(session)), "m-live.json"),
         messageRecord({
           id: "m-live",
-          from: "peer-aaaaaaaa",
+          from: "mk-aaaaaaaa",
           fromName: "maki-aaaaaaaa",
           to: peerIdOf(session),
           body: "through the daemon",
