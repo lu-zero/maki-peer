@@ -10,17 +10,20 @@ maki lua plugins extend maki with tools, commands, keybindings, and event handle
 
 ## Testing
 
+Run `just setup` once to install every host's dependencies at the versions the lockfiles pin. CI uses the same pins: bun `1.4.2`, TypeScript `7.0.2`, and `@types/bun` `1.4.5`. Keep the four `package.json` files and their lockfiles together when one moves.
+
 The Rust checks run at the repository root. CI runs the same commands, see `.github/workflows/plugin.yml`. Cheapest first:
 
 - `just check`
 - `just lint`
 - `just test`
+- `just all` runs every Rust and host check in CI order
 
 Tests live in `tests/` and load the plugin through the real `maki-lua` host with `PluginHost::load_package`, passing the repo root (it derives `plugin/` itself; passing `plugin/` fails with `PackageEmpty`).
 
 Each test gets its own process under `cargo nextest`, which is what lets `tests/peer_integration.rs` redirect the process-wide XDG environment at a temp dir. A second test in that binary would race the first under plain `cargo test`.
 
-Dev-dependencies pin a revision of maki. Move the pin when the host changes what the plugin uses.
+Dev-dependencies pin a revision of maki. Move the pin when the host changes what the plugin uses. A plain `cargo update` can pull `monty` 1.6, which the pinned maki host does not compile against; dependabot ignores those three crates until the maki pin moves.
 
 Assert Lua-visible effects (callback output, mailbox messages), not just files. `smol::unblock` side effects land even when a callback aborts, so file-only checks can pass while the Lua-level API is broken.
 

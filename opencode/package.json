@@ -7,11 +7,11 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@opencode/plugin": "2.0.32"
+    "@opencode/plugin": "2.3.2"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "^5"
+    "@types/bun": "1.4.5",
+    "typescript": "7.0.2"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

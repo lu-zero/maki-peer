@@ -1,6 +1,11 @@
 default:
     @just --list
 
+# Install every host's dependencies at the versions the lockfiles pin.
+setup:
+    cargo fetch
+    for d in opencode grok vibe claude; do (cd "$d" && bun install --frozen-lockfile); done
+
 check:
     cargo check --tests
 

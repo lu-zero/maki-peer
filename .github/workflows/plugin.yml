@@ -13,6 +13,8 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
+  BUN_VERSION: "1.4.2"
+  STYLUA_VERSION: v2.4.1
 
 jobs:
   fmt:
@@ -27,8 +29,6 @@ jobs:
     name: Format (Lua)
     if: github.repository != 'lu-zero/maki-lua-plugin-template'
     runs-on: ubuntu-latest
-    env:
-      STYLUA_VERSION: v2.4.1
     steps:
       - uses: actions/checkout@v4
       - name: Install stylua
@@ -64,66 +64,27 @@ jobs:
           tool: cargo-nextest
       - run: cargo nextest run
 
-  opencode:
-    name: OpenCode plugin
+  hosts:
+    name: ${{ matrix.host }} plugin
     if: github.repository != 'lu-zero/maki-lua-plugin-template'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [opencode, grok, vibe, claude]
     defaults:
       run:
-        working-directory: opencode
+        working-directory: ${{ matrix.host }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
-      - run: bun install --frozen-lockfile
-      - run: bunx tsc --noEmit
-      - run: bun test
-
-  grok:
-    name: Grok plugin
-    if: github.repository != 'lu-zero/maki-lua-plugin-template'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: grok
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/cache@v4
         with:
-          bun-version: latest
-      - run: bun install --frozen-lockfile
-      - run: bunx tsc --noEmit
-      - run: bun test
-
-  vibe:
-    name: Vibe plugin
-    if: github.repository != 'lu-zero/maki-lua-plugin-template'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: vibe
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - run: bun install --frozen-lockfile
-      - run: bunx tsc --noEmit
-      - run: bun test
-
-  claude:
-    name: Claude Code plugin
-    if: github.repository != 'lu-zero/maki-lua-plugin-template'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: claude
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ env.BUN_VERSION }}-${{ hashFiles(format('{0}/bun.lock', matrix.host)) }}
+          restore-keys: ${{ runner.os }}-bun-${{ env.BUN_VERSION }}-
       - run: bun install --frozen-lockfile
       - run: bunx tsc --noEmit
       - run: bun test

@@ -1,0 +1,38 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    # The pinned maki host does not compile against monty 1.6. Move the maki
+    # pin first, then let these through.
+    ignore:
+      - dependency-name: "monty"
+      - dependency-name: "monty-macros"
+      - dependency-name: "monty-types"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: "/opencode"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: "/grok"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: "/vibe"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: "/claude"
+    schedule:
+      interval: weekly

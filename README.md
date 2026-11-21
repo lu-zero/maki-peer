@@ -147,3 +147,13 @@ The short names in the table are the tool names. Grok prefixes them with
 
 Ids, the `session` field, delivery, and the local-only limits are in
 [Architecture](docs/architecture.md).
+
+## Develop
+
+`just setup` installs the Rust and host dependencies at the pinned versions.
+`just all` runs every check in CI order. A single host can be checked with
+`just opencode`, `just grok`, `just vibe`, or `just claude`.
+
+CI pins bun 1.4.2. The four host packages pin TypeScript 7.0.2 and
+`@types/bun` 1.4.5, and each lockfile is committed. Dependabot proposes weekly
+updates; the maki host pin has to move before the `monty` crates can follow.
