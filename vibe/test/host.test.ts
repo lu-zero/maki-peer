@@ -274,6 +274,7 @@ describe("tools", () => {
     const listed = await callTool(box.spool, box.pluginData, "peer_list", {})
     expect(listed.error).toBe(false)
     expect(listed.text).toContain("(you)")
+    expect(listed.text).toContain("  /work/app  via vibe")
     expect(listed.text).toContain("via vibe")
     expect(listed.text).toContain("via maki")
 
@@ -296,6 +297,40 @@ describe("tools", () => {
       message: "hello me",
     })
     expect(own.error).toBe(true)
+  })
+
+  test("peer_cwd reports full ids and directories", async () => {
+    const box = layout()
+    const now = Math.floor(Date.now() / 1000)
+    await box.spool.prepare()
+    await box.spool.write(box.spool.ownerPath("mk-with"), {
+      protocol: 1,
+      id: "mk-with",
+      name: "maki-with",
+      started: now,
+      last_seen: now,
+      status: "idle",
+      cwd: "/work/other",
+    })
+    await box.spool.write(box.spool.ownerPath("mk-without"), {
+      protocol: 1,
+      id: "mk-without",
+      name: "maki-without",
+      started: now,
+      last_seen: now,
+      status: "idle",
+    })
+    await handleHook(event("pre_tool", box.sessionId, "/work/app"), {
+      spoolRoot: box.spoolRoot,
+      pluginData: box.pluginData,
+    })
+
+    const result = await callTool(box.spool, box.pluginData, "peer_cwd", {})
+    expect(result.error).toBe(false)
+    const map = JSON.parse(result.text) as Record<string, string | null>
+    expect(map["mk-with"]).toBe("/work/other")
+    expect(map["mk-without"]).toBeNull()
+    expect(map[peerIdOf(box.sessionId)]).toBe("/work/app")
   })
 
   test("a session field is kept for a vibe recipient", async () => {

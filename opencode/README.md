@@ -62,10 +62,13 @@ There is no `/peer` command on this host. The model controls the feature
 through its tools:
 
 - `peer_list` lists every local Maki, OpenCode, Grok, and Vibe session with
-  its host, status, model, and title. Ids are abbreviated to the shortest prefix that is
-  unique among the listed peers, the title is cut to twenty four runes with an
-  ellipsis, and tags mark only exceptions: `(you)` for the session that asked,
-  `(other dir)` for a peer in a different directory.
+  its host, status, model, title, and working directory. Ids are abbreviated
+  to the shortest prefix that is unique among the listed peers, the title is
+  cut to twenty four runes with an ellipsis, the directory is printed in full,
+  and tags mark only exceptions: `(you)` for the session that asked,
+  `(other dir)` for a peer in a different directory. A missing value is a dash.
+- `peer_cwd` returns a JSON object from each live peer's full id to its
+  working directory, or `null` when the peer reports none.
 - `peer_send` sends an observation to one peer, by id or by name.
 - `peer_broadcast` sends one observation to every other peer, optionally
   limited to peers in the same directory.

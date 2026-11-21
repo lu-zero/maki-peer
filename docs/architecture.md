@@ -38,7 +38,10 @@ Ids and names:
 
 A title is display data. It is not an address. `peer_list` abbreviates ids
 to the shortest unique prefix, never shorter than four characters, and tags
-`(you)` and `(other dir)` only.
+`(you)` and `(other dir)` only. It prints the directory as its own column in
+full, since a shortened path could name two places. `peer_cwd` returns the
+same directories as a JSON object keyed by the full id, with `null` for a
+peer that reports none.
 
 ## Send and broadcast
 

@@ -36,7 +36,7 @@ ln -s /absolute/path/to/maki-peer/vibe ~/.vibe/plugins/maki-peer
 
 Start a new session, or run `/reload` in one that is already open. The skill
 is `peer`. Vibe publishes the tools as `mcp_peer.peer_list`,
-`mcp_peer.peer_send`, and `mcp_peer.peer_broadcast`.
+`mcp_peer.peer_cwd`, `mcp_peer.peer_send`, and `mcp_peer.peer_broadcast`.
 
 Vibe pins the tree it bound, so a running session keeps that tree until
 `/reload` or a new session. Copy again to update a copied install. A symlink
@@ -64,14 +64,17 @@ Those files are not protocol records.
 ## Use
 
 There is no `/peer` command on this host, and no `peer_spawn`. The model uses
-the three tools:
+the four tools:
 
 - `mcp_peer.peer_list` lists every local Maki, OpenCode, Grok, and Vibe
-  session with its host, status, model, and title. Ids are abbreviated to
-  the shortest prefix that is unique among the listed peers, the title is
-  cut to twenty four runes with an ellipsis, and tags mark only exceptions:
-  `(you)` for the session that asked, `(other dir)` for a peer in a different
-  directory.
+  session with its host, status, model, title, and working directory. Ids are
+  abbreviated to the shortest prefix that is unique among the listed peers,
+  the title is cut to twenty four runes with an ellipsis, the directory is
+  printed in full, and tags mark only exceptions: `(you)` for the session
+  that asked, `(other dir)` for a peer in a different directory. A missing
+  value is a dash.
+- `mcp_peer.peer_cwd` returns a JSON object from each live peer's full id to
+  its working directory, or `null` when the peer reports none.
 - `mcp_peer.peer_send` sends an observation to one peer, by id or by name.
 - `mcp_peer.peer_broadcast` sends one observation to every other peer,
   optionally limited to peers in the same directory.

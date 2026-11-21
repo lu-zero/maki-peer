@@ -636,7 +636,11 @@ fn the_list_marks_local_and_same_dir() {
         .lines()
         .find(|line| line.starts_with("- oc-a  "))
         .unwrap_or_else(|| panic!("got: {out}"));
-    assert_eq!(line, "- oc-a  idle  zai/glm-5  -  via maki", "got: {line}");
+    assert_eq!(
+        line,
+        format!("- oc-a  idle  zai/glm-5  -  {}/  via maki", cwd()),
+        "got: {line}"
+    );
     let own = out
         .lines()
         .find(|line| line.contains("(you)"))
@@ -650,6 +654,33 @@ fn the_list_marks_local_and_same_dir() {
         "the session that asked is trivially in its own directory, got: {own}"
     );
     assert!(own.contains("  via maki  "), "got: {own}");
+    drop(host);
+}
+
+#[test]
+fn peer_cwd_reports_each_live_peer_directory() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+
+    write_owner(
+        &state,
+        &owner_record(
+            "oc-abc123def4567890",
+            "opencode-072f28",
+            1,
+            Some("/work/peer"),
+            Some("zai/glm-5"),
+        ),
+    );
+    write_owner(&state, &owner_record("gk-no-dir", "grok-1", 1, None, None));
+
+    let out = exec_tool(&registry, "peer_cwd", json!({})).unwrap();
+    let map: serde_json::Value = serde_json::from_str(&out).expect("peer_cwd should return JSON");
+    assert_eq!(map["oc-abc123def4567890"], json!("/work/peer"));
+    assert_eq!(map["gk-no-dir"], json!(null));
+    assert!(map.get("oc-a").is_none(), "the key must be the full id");
     drop(host);
 }
 

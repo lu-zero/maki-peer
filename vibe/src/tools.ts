@@ -2,6 +2,7 @@ import { join } from "node:path"
 
 import {
   broadcastTo,
+  formatCwdMap,
   formatPeerLines,
   messageRecord,
   nameFromPeerID,
@@ -42,6 +43,10 @@ export async function peerList(spool: Spool, self: SessionState | undefined): Pr
     ...(self ? { sessionID: self.sessionId, idPrefix: ID_PREFIX } : {}),
   })
   return { text: lines.join("\n"), error: false }
+}
+
+export async function peerCwd(spool: Spool): Promise<ToolResult> {
+  return { text: formatCwdMap(await livePeers(spool)), error: false }
 }
 
 async function queue(
@@ -143,6 +148,7 @@ export async function callTool(
   }
   const self = await actor(spool, pluginData)
   if (name === "peer_list") return peerList(spool, self)
+  if (name === "peer_cwd") return peerCwd(spool)
   if (!self) return { text: "this vibe session is not registered as a peer yet", error: true }
   if (name === "peer_send") return peerSend(spool, self, fields)
   if (name === "peer_broadcast") return peerBroadcast(spool, self, fields)

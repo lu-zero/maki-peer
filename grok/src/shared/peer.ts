@@ -559,9 +559,10 @@ function listTitle(title: string | undefined): string {
  * is abbreviated the way git abbreviates hashes: the shortest prefix that
  * separates it from every other listed peer. The name is left off, since it is
  * only the label plus the id prefix the line already carries, and the title is
- * cut for width, the record keeping the full form. Tags mark exceptions only:
- * `you` is the session that asked, `other dir` a peer whose directory differs
- * from it.
+ * cut for width, the record keeping the full form. The directory is shown in
+ * full, since an abbreviated path could not be told from another one. Tags mark
+ * exceptions only: `you` is the session that asked, `other dir` a peer whose
+ * directory differs from it.
  */
 export function formatPeerLines(
   peers: Owner[],
@@ -575,11 +576,17 @@ export function formatPeerLines(
     if (self.cwd && peer.cwd && !sameTree(peer, self)) flags.push("other dir")
     const suffix = flags.length === 0 ? "" : `  (${flags.join(")  (")})`
     const model = peer.model ?? "-"
+    const cwd = peer.cwd ?? "-"
     const width = widths.get(peer.id) ?? peer.id.length
-    return `- ${peer.id.slice(0, width)}  ${peer.status}  ${model}  ${listTitle(peer.title)}  via ${peer.origin?.host ?? "maki"}${suffix}`
+    return `- ${peer.id.slice(0, width)}  ${peer.status}  ${model}  ${listTitle(peer.title)}  ${cwd}  via ${peer.origin?.host ?? "maki"}${suffix}`
   })
   if (peers.length <= 1) lines.push("No other local peers are registered.")
   return lines
+}
+
+/** Full ids, not display abbreviations: a shortened id could name two peers. */
+export function formatCwdMap(peers: Owner[]): string {
+  return JSON.stringify(Object.fromEntries(peers.map((peer) => [peer.id, peer.cwd ?? null] as const)))
 }
 
 export type EventData = {

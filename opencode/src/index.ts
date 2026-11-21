@@ -2,7 +2,7 @@ import { Plugin } from "@opencode/plugin"
 import { join } from "node:path"
 
 import { DETAIL_REFRESH_SECONDS, GC_SWEEP_INTERVAL_SECONDS, ORIGIN_HOST, OWNER_REFRESH_MS, POLL_MS, kindOf, sameTree, validId, type Owner, type PeerMessage } from "./protocol.js"
-import { applyEventAsync, broadcastTo, deliveryText, formatPeerLines, messageRecord, newInstanceId, newMessageId, PeerRegistry, resolvePeer, sweepOrphanInboxes, sweepStaleOwners, type EventData } from "./peer.js"
+import { applyEventAsync, broadcastTo, deliveryText, formatCwdMap, formatPeerLines, messageRecord, newInstanceId, newMessageId, PeerRegistry, resolvePeer, sweepOrphanInboxes, sweepStaleOwners, type EventData } from "./peer.js"
 import { encodeBody, receiveOnce, type DeliveryOutcome } from "./receive.js"
 import { resolveSpoolRoot, Spool } from "./spool.js"
 
@@ -304,6 +304,12 @@ const broadcastTargets = async (fromSessionID: string | undefined, sameDirOnly: 
         description: "List peer instances registered",
         input: { type: "object", properties: {}, additionalProperties: false },
         execute: async (_input, context) => ({ content: await listOutput(context.sessionID) }),
+      })
+      editor.add({
+        name: "cwd",
+        description: "Report the working directory of each live peer as a JSON object from full peer id to path, or null when a peer reports no directory.",
+        input: { type: "object", properties: {}, additionalProperties: false },
+        execute: async () => ({ content: formatCwdMap(await registry.all()) }),
       })
       editor.add({
         name: "send",

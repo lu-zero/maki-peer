@@ -2,6 +2,7 @@ import { join } from "node:path"
 
 import {
   broadcastTo,
+  formatCwdMap,
   formatPeerLines,
   messageRecord,
   newMessageId,
@@ -31,6 +32,10 @@ export async function peerList(spool: Spool, self: SessionState | undefined): Pr
     ...(self ? { sessionID: self.sessionId, idPrefix: "gk" as const } : {}),
   })
   return { text: lines.join("\n"), error: false }
+}
+
+export async function peerCwd(spool: Spool): Promise<ToolResult> {
+  return { text: formatCwdMap(await livePeers(spool)), error: false }
 }
 
 async function queue(
@@ -130,6 +135,7 @@ export async function callTool(
     const actor = await actingSession(runtime, hint)
     return peerList(spool, isState(actor) ? actor : undefined)
   }
+  if (name === "peer_cwd") return peerCwd(spool)
   const actor = await actingSession(runtime, hint)
   if (!isState(actor)) return { text: actor.error, error: true }
   if (name === "peer_send") return peerSend(spool, actor, fields)

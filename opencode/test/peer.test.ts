@@ -9,6 +9,7 @@ import {
   applyEventAsync,
   broadcastTo,
   deliveryText,
+  formatCwdMap,
   formatPeerLines,
   messageRecord,
   nameFromPeerID,
@@ -531,14 +532,14 @@ describe("peer list lines", () => {
 
   test("leads with the abbreviated id the send tool takes", () => {
     const [line] = formatPeerLines([oc], { ids: new Set() })
-    expect(line).toBe("- oc-0  working  opencode/space-bunny-free  -  via opencode")
+    expect(line).toBe("- oc-0  working  opencode/space-bunny-free  -  -  via opencode")
   })
 
   test("cuts the title for width and says so, the record keeping the full form", () => {
     const titled = { ...oc, title: "reviewer: watching the provider retry path" }
     const [line] = formatPeerLines([titled], { ids: new Set() })
     expect(line).toBe(
-      "- oc-0  working  opencode/space-bunny-free  reviewer: watching the p\u2026  via opencode",
+      "- oc-0  working  opencode/space-bunny-free  reviewer: watching the p\u2026  -  via opencode",
     )
   })
 
@@ -548,7 +549,7 @@ describe("peer list lines", () => {
     const elsewhere = { ...oc, id: "oc-3", cwd: "/home/u/src/other" }
     const lines = formatPeerLines([mine, neighbour, elsewhere], { ids: new Set([mine.id]), cwd: "/home/u/src/maki-peer", sessionID: "ses_me" })
     expect(lines[0]).toEndWith("  (you)")
-    expect(lines[1]).toBe("- oc-2  working  opencode/space-bunny-free  -  via opencode")
+    expect(lines[1]).toBe("- oc-2  working  opencode/space-bunny-free  -  /home/u/src/maki-peer/  via opencode")
     expect(lines[2]).toEndWith("  (other dir)")
   })
 
@@ -572,7 +573,22 @@ describe("peer list lines", () => {
   })
 
   test("prints a dash for a peer with no title", () => {
-    expect(formatPeerLines([{ ...oc, title: undefined }], { ids: new Set() })[0]).toContain("  -  via")
+    expect(formatPeerLines([{ ...oc, title: undefined }], { ids: new Set() })[0]).toContain("  -  -  via")
+  })
+
+  test("prints the whole directory, without cutting it for width", () => {
+    const deep = "/home/u/src/a/very/deep/project/with/a/long/path"
+    const line = formatPeerLines([{ ...oc, cwd: deep }], { ids: new Set() })[0]
+    expect(line).toContain(`  ${deep}  via`)
+  })
+
+  test("maps full ids to directories, with null for a peer that reports none", () => {
+    const withCwd = { ...oc, id: "oc-with", cwd: "/home/u/src/maki-peer" }
+    const without = { ...oc, id: "oc-without" }
+    expect(JSON.parse(formatCwdMap([withCwd, without]))).toEqual({
+      "oc-with": "/home/u/src/maki-peer",
+      "oc-without": null,
+    })
   })
 
   test("widens abbreviations until the ids differ", () => {

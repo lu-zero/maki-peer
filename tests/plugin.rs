@@ -53,7 +53,7 @@ fn exec_tool(reg: &ToolRegistry, name: &str, input: serde_json::Value) -> Result
 #[test]
 fn tools_register() {
     let (_temp, reg, _host) = plugin_host();
-    for name in ["peer_list", "peer_send", "peer_broadcast", "peer_spawn"] {
+    for name in ["peer_list", "peer_cwd", "peer_send", "peer_broadcast", "peer_spawn"] {
         assert!(reg.has(name), "peer tool {name} should register");
     }
 }
@@ -140,6 +140,7 @@ fn the_halves_declare_the_same_tool_descriptions() {
             "Send an observation or status to one named peer",
         ),
         ("peer_broadcast", "Send an observation to EVERY peer"),
+        ("peer_cwd", "Report the working directory of each live peer"),
     ] {
         let on_maki = description(&lua, "description = \"", prefix);
         let on_opencode = description(&ts, "description: \"", prefix);

@@ -340,7 +340,40 @@ describe("tools", () => {
     await emit(box, { hook_event_name: "SessionStart", sessionId: session, cwd: "/work" })
     const listed = await callTool(spool, box.runtime, { pid, sessionId: session }, "peer_list", {})
     expect(listed.text).toContain("(you)")
+    expect(listed.text).toContain("  /work  via grok")
     expect(listed.text).toContain("via grok")
+  })
+
+  test("peer_cwd reports full ids and directories", async () => {
+    const box = layout(tempRoot())
+    const spool = new Spool(box.spoolRoot)
+    await emit(box, { hook_event_name: "SessionStart", sessionId: session, cwd: "/work" })
+    const now = Math.floor(Date.now() / 1000)
+    await spool.write(spool.ownerPath("mk-with"), {
+      protocol: 1,
+      id: "mk-with",
+      name: "maki-with",
+      started: now,
+      last_seen: now,
+      status: "idle",
+      cwd: "/work/other",
+      origin: { host: "maki" },
+    })
+    await spool.write(spool.ownerPath("mk-without"), {
+      protocol: 1,
+      id: "mk-without",
+      name: "maki-without",
+      started: now,
+      last_seen: now,
+      status: "idle",
+      origin: { host: "maki" },
+    })
+    const result = await callTool(spool, box.runtime, { pid, sessionId: session }, "peer_cwd", {})
+    expect(result.error).toBe(false)
+    const map = JSON.parse(result.text) as Record<string, string | null>
+    expect(map["mk-with"]).toBe("/work/other")
+    expect(map["mk-without"]).toBeNull()
+    expect(map[peerIdOf(session)]).toBe("/work")
   })
 })
 

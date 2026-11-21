@@ -1112,6 +1112,13 @@ local function list_title(record)
   return record.title:sub(1, cut - 1) .. "…"
 end
 
+local function list_cwd(record)
+  if type(record.cwd) == "string" and record.cwd ~= "" then
+    return record.cwd
+  end
+  return "-"
+end
+
 local function peer_list_lines(self_session_id)
   local mine, mine_err = ensure_session(self_session_id)
   if not mine then
@@ -1127,11 +1134,12 @@ local function peer_list_lines(self_session_id)
     -- The name is omitted: it is the label plus the id prefix, both of which
     -- the line already carries, so the column said the same thing twice.
     local line = string.format(
-      "- %s  %s  %s  %s  via %s",
+      "- %s  %s  %s  %s  %s  via %s",
       peer.id:sub(1, widths[peer.id] or #peer.id),
       peer.status,
       peer.model or "-",
       list_title(peer) or "-",
+      list_cwd(peer),
       host_of(peer)
     )
     if peer.id == mine.id then
@@ -1156,6 +1164,27 @@ local function peer_list_output(self_session_id)
     return nil, err
   end
   return table.concat(lines, "\n")
+end
+
+-- Full ids, not display abbreviations: a shortened id could name two peers.
+local function peer_cwd_output(self_session_id)
+  local mine, mine_err = ensure_session(self_session_id)
+  if not mine then
+    return nil, mine_err
+  end
+  local peers, err = list_peers()
+  if not peers then
+    return nil, err
+  end
+  local map = {}
+  for _, peer in ipairs(peers) do
+    map[peer.id] = type(peer.cwd) == "string" and peer.cwd ~= "" and peer.cwd or maki.NIL
+  end
+  local encoded, encode_err = maki.json.encode(map)
+  if not encoded then
+    return nil, encode_err or "could not encode peer directories"
+  end
+  return encoded
 end
 
 local PEER_WINDOW_MARGIN = 4
@@ -1244,7 +1273,7 @@ end
 
 maki.api.register_prompt_hint({
   slot = "tool_usage",
-  content = "- Use peer_list to discover local Maki instances, peer_send to send an observation, peer_broadcast to reach every peer, and peer_spawn to start an independent tmux peer, optionally on a chosen model spec.",
+  content = "- Use peer_list to discover local peers and their working directories, peer_cwd for the directories alone as JSON, peer_send to send an observation, peer_broadcast to reach every peer, and peer_spawn to start an independent tmux peer, optionally on a chosen model spec.",
 })
 
 maki.api.register_tool({
@@ -1263,6 +1292,27 @@ maki.api.register_tool({
     local output, err = peer_list_output(ctx and ctx:session_id())
     if not output then
       return { llm_output = err or "could not list peers", is_error = true }
+    end
+    return output
+  end,
+})
+
+maki.api.register_tool({
+  name = "peer_cwd",
+  kind = "other",
+  description = "Report the working directory of each live peer as a JSON object from full peer id to path, or null when a peer reports no directory.",
+  schema = {
+    type = "object",
+    properties = {},
+  },
+  permission = "fs_read",
+  permission_scopes = function()
+    return { scopes = { "peer_cwd" }, force_prompt = false }
+  end,
+  handler = function(_, ctx)
+    local output, err = peer_cwd_output(ctx and ctx:session_id())
+    if not output then
+      return { llm_output = err or "could not report peer directories", is_error = true }
     end
     return output
   end,

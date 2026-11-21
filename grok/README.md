@@ -24,7 +24,8 @@ grok plugin install /absolute/path/to/maki-peer/grok --trust
 ```
 
 Start a new session after installing. The skill is `peer`. The tools are
-`peer__peer_list`, `peer__peer_send`, and `peer__peer_broadcast`.
+`peer__peer_list`, `peer__peer_cwd`, `peer__peer_send`, and
+`peer__peer_broadcast`.
 
 ## Verify
 
@@ -48,13 +49,17 @@ part of the protocol.
 ## Use
 
 There is no `/peer` command on this host, and no `peer_spawn`. The model uses
-the three tools:
+the four tools:
 
-- `peer__peer_list` lists every local Maki, OpenCode, Grok, and Vibe session with
-  its host, status, model, and title. Ids are abbreviated to the shortest
-  prefix that is unique among the listed peers, the title is cut to twenty
-  four runes with an ellipsis, and tags mark only exceptions: `(you)` for the
-  session that asked, `(other dir)` for a peer in a different directory.
+- `peer__peer_list` lists every local Maki, OpenCode, Grok, and Vibe session
+  with its host, status, model, title, and working directory. Ids are
+  abbreviated to the shortest prefix that is unique among the listed peers,
+  the title is cut to twenty four runes with an ellipsis, the directory is
+  printed in full, and tags mark only exceptions: `(you)` for the session
+  that asked, `(other dir)` for a peer in a different directory. A missing
+  value is a dash.
+- `peer__peer_cwd` returns a JSON object from each live peer's full id to its
+  working directory, or `null` when the peer reports none.
 - `peer__peer_send` sends an observation to one peer, by id or by name.
 - `peer__peer_broadcast` sends one observation to every other peer, optionally
   limited to peers in the same directory.

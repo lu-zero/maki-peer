@@ -53,7 +53,7 @@ Approve `fs_read`, `fs_write`, `run`, and `session_write`. A checkout you
 placed there is granted what `plugin.toml` asks for. There is no separate
 `peer` permission. `session_write` covers `maki.session.notify`.
 
-Tools: `peer_list`, `peer_send`, `peer_broadcast`, `peer_spawn`. `/peer`
+Tools: `peer_list`, `peer_cwd`, `peer_send`, `peer_broadcast`, `peer_spawn`. `/peer`
 lists peers, and it can send or spawn.
 
 ### OpenCode
@@ -64,8 +64,8 @@ Point `~/.config/opencode/plugins/maki-peer.ts` at the entrypoint:
 export { default } from "/absolute/path/to/maki-peer/opencode/src/index.ts"
 ```
 
-Tools: `peer_list`, `peer_send`, `peer_broadcast`. Install, the shim, and
-delivery are in the [OpenCode](opencode/README.md) page.
+Tools: `peer_list`, `peer_cwd`, `peer_send`, `peer_broadcast`. Install, the
+shim, and delivery are in the [OpenCode](opencode/README.md) page.
 
 ### Grok
 
@@ -73,16 +73,18 @@ delivery are in the [OpenCode](opencode/README.md) page.
 grok plugin install /absolute/path/to/maki-peer/grok --trust
 ```
 
-Tools: `peer__peer_list`, `peer__peer_send`, `peer__peer_broadcast`. Install
-and delivery are in the [Grok](grok/README.md) page.
+Tools: `peer__peer_list`, `peer__peer_cwd`, `peer__peer_send`,
+`peer__peer_broadcast`. Install and delivery are in the
+[Grok](grok/README.md) page.
 
 ### Vibe
 
 Copy or symlink `vibe/` to `~/.vibe/plugins/maki-peer`, then start a session
 or run `/reload`.
 
-Tools: `mcp_peer.peer_list`, `mcp_peer.peer_send`, `mcp_peer.peer_broadcast`.
-Install and delivery are in the [Vibe](vibe/README.md) page.
+Tools: `mcp_peer.peer_list`, `mcp_peer.peer_cwd`, `mcp_peer.peer_send`,
+`mcp_peer.peer_broadcast`. Install and delivery are in the
+[Vibe](vibe/README.md) page.
 
 ## Use
 
@@ -97,12 +99,18 @@ is no undo. Sending to your own session is refused. `wake: true` asks the
 receiving host to start a turn when its session is idle; without it the
 message waits for the session's next turn.
 
-| Host                           | List                 | Send                 | Broadcast                  |
-| ------------------------------ | -------------------- | -------------------- | -------------------------- |
-| [Maki](#maki)                  | `peer_list`          | `peer_send`          | `peer_broadcast`           |
-| [OpenCode](opencode/README.md) | `peer_list`          | `peer_send`          | `peer_broadcast`           |
-| [Grok](grok/README.md)         | `peer__peer_list`    | `peer__peer_send`    | `peer__peer_broadcast`     |
-| [Vibe](vibe/README.md)         | `mcp_peer.peer_list` | `mcp_peer.peer_send` | `mcp_peer.peer_broadcast`  |
+`peer_list` shows one line per live peer. The columns are the id, status,
+model, title, working directory, and host. A peer with no model, title, or
+directory shows a dash. The directory is printed in full. `peer_cwd` returns
+the same directories as a JSON object keyed by the full peer id, with `null`
+for a peer that reports none.
+
+| Host                           | List                 | Directories            | Send                 | Broadcast                  |
+| ------------------------------ | -------------------- | ---------------------- | -------------------- | -------------------------- |
+| [Maki](#maki)                  | `peer_list`          | `peer_cwd`             | `peer_send`          | `peer_broadcast`           |
+| [OpenCode](opencode/README.md) | `peer_list`          | `peer_cwd`             | `peer_send`          | `peer_broadcast`           |
+| [Grok](grok/README.md)         | `peer__peer_list`    | `peer__peer_cwd`       | `peer__peer_send`    | `peer__peer_broadcast`     |
+| [Vibe](vibe/README.md)         | `mcp_peer.peer_list` | `mcp_peer.peer_cwd`    | `mcp_peer.peer_send` | `mcp_peer.peer_broadcast`  |
 
 `/peer` and `peer_spawn` exist only on Maki. `peer_spawn` starts a detached
 `tmux` session. The model spec is `provider/model-id`.

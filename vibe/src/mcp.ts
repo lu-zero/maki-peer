@@ -14,6 +14,11 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
+    name: "peer_cwd",
+    description: "Report the working directory of each live peer as a JSON object from full peer id to path, or null when a peer reports no directory.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
     name: "peer_send",
     description: "Send an observation or status to one named peer, on either host, and to that peer only. This is the default way to reach another agent: prefer it to a broadcast unless you really do mean everyone. Two agents working closely together use this.",
     inputSchema: {
