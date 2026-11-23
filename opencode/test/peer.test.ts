@@ -608,6 +608,23 @@ describe("peer list lines", () => {
       "No other local peers are registered.",
     ])
   })
+
+  test("groups a large list by directory with active peers first", () => {
+    const active = { ...oc, id: "oc-active", status: "working" as const, cwd: "/work/a" }
+    const quiet = [
+      { ...oc, id: "oc-a", status: "idle" as const, cwd: "/work/a" },
+      { ...oc, id: "oc-b", status: "idle" as const, cwd: "/work/b" },
+      { ...oc, id: "oc-c", status: "idle" as const, cwd: "/work/b" },
+      { ...oc, id: "oc-d", status: "idle" as const, cwd: "/work/c" },
+    ]
+    const lines = formatPeerLines([quiet[0], quiet[2], active, quiet[1], quiet[3]], { ids: new Set() })
+    expect(lines[0]).toBe("5 peers: 1 active, 4 idle.")
+    expect(lines[1]).toContain("working")
+    expect(lines).toContain("/work/a:")
+    expect(lines).toContain("/work/b:")
+    expect(lines).toContain("/work/c:")
+    expect(lines[lines.length - 1]).toContain("oc-d")
+  })
 })
 
 describe("titles", () => {

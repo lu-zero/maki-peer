@@ -155,6 +155,7 @@ end
 
 local MAX_TITLE_RUNES = 64
 local MAX_LIST_TITLE_RUNES = 24
+local MAX_FLOAT_TITLE_RUNES = 48
 local MAX_TOPIC_RUNES = 48
 local MAX_MODEL_RUNES = 64
 local MAX_NAME_RUNES = 32
@@ -1112,6 +1113,17 @@ local function list_title(record)
   return record.title:sub(1, cut - 1) .. "…"
 end
 
+local function float_title(record)
+  if not record.title then
+    return nil
+  end
+  local cut = utf8.offset(record.title, MAX_FLOAT_TITLE_RUNES + 1)
+  if not cut then
+    return record.title
+  end
+  return record.title:sub(1, cut - 1) .. "…"
+end
+
 local function list_cwd(record)
   if type(record.cwd) == "string" and record.cwd ~= "" then
     return record.cwd
@@ -1119,7 +1131,41 @@ local function list_cwd(record)
   return "-"
 end
 
-local function peer_list_lines(self_session_id)
+local function render_peer_line(peer, mine, widths, grouped, full_title)
+  local id = peer.id:sub(1, widths[peer.id] or #peer.id)
+  local line
+  if grouped then
+    line = string.format(
+      "- %s  %s  %s  %s  via %s",
+      id,
+      peer.status,
+      peer.model or "-",
+      (full_title and float_title(peer)) or list_title(peer) or "-",
+      host_of(peer)
+    )
+  else
+    line = string.format(
+      "- %s  %s  %s  %s  %s  via %s",
+      id,
+      peer.status,
+      peer.model or "-",
+      (full_title and float_title(peer)) or list_title(peer) or "-",
+      list_cwd(peer),
+      host_of(peer)
+    )
+  end
+  if peer.id == mine.id then
+    line = line .. "  (you)"
+  end
+  -- Untagged means the ordinary case: a local peer in the same directory as
+  -- the session that asked. Only the exceptions earn a tag.
+  if not grouped and mine.cwd ~= nil and type(peer.cwd) == "string" and not same_dir(peer, mine) then
+    line = line .. "  (other dir)"
+  end
+  return line
+end
+
+local function peer_list_lines(self_session_id, full_title)
   local mine, mine_err = ensure_session(self_session_id)
   if not mine then
     return nil, mine_err
@@ -1130,27 +1176,41 @@ local function peer_list_lines(self_session_id)
   end
   local widths = abbreviate_ids(peers)
   local lines = {}
+  -- A shared service can publish dozens of sessions. Put the ones that need
+  -- attention first and group the quiet ones by directory so the list is a
+  -- set of choices rather than a wall of lines.
+  if #peers > 4 then
+    local active, idle = {}, {}
+    for _, peer in ipairs(peers) do
+      if peer.status == "idle" then
+        idle[#idle + 1] = peer
+      else
+        active[#active + 1] = peer
+      end
+    end
+    lines[1] = string.format("%d peers: %d active, %d idle.", #peers, #active, #idle)
+    for _, peer in ipairs(active) do
+      lines[#lines + 1] = render_peer_line(peer, mine, widths, true, full_title)
+    end
+    local dirs, groups = {}, {}
+    for _, peer in ipairs(idle) do
+      local dir = list_cwd(peer)
+      if not groups[dir] then
+        groups[dir] = {}
+        dirs[#dirs + 1] = dir
+      end
+      groups[dir][#groups[dir] + 1] = peer
+    end
+    for _, dir in ipairs(dirs) do
+      lines[#lines + 1] = dir .. ":"
+      for _, peer in ipairs(groups[dir]) do
+        lines[#lines + 1] = "  " .. render_peer_line(peer, mine, widths, true, full_title)
+      end
+    end
+    return lines, nil
+  end
   for _, peer in ipairs(peers) do
-    -- The name is omitted: it is the label plus the id prefix, both of which
-    -- the line already carries, so the column said the same thing twice.
-    local line = string.format(
-      "- %s  %s  %s  %s  %s  via %s",
-      peer.id:sub(1, widths[peer.id] or #peer.id),
-      peer.status,
-      peer.model or "-",
-      list_title(peer) or "-",
-      list_cwd(peer),
-      host_of(peer)
-    )
-    if peer.id == mine.id then
-      line = line .. "  (you)"
-    end
-    -- Untagged means the ordinary case: a local peer in the same directory as
-    -- the session that asked. Only the exceptions earn a tag.
-    if mine.cwd ~= nil and type(peer.cwd) == "string" and not same_dir(peer, mine) then
-      line = line .. "  (other dir)"
-    end
-    lines[#lines + 1] = line
+    lines[#lines + 1] = render_peer_line(peer, mine, widths, false, full_title)
   end
   if #lines == 0 then
     lines[1] = "No other local peers are registered."
@@ -1188,34 +1248,222 @@ local function peer_cwd_output(self_session_id)
 end
 
 local PEER_WINDOW_MARGIN = 4
+local PEER_WINDOW_MAX_WIDTH = 96
+
+-- The float keeps the tool's plain lines as its source of truth. Only the
+-- display builds spans, so the text a peer sees in a tool and in the float
+-- stays identical while the float gains aligned columns and colour.
+-- Theme styles can carry a background, which makes a whole row shout. Keep
+-- the theme's foreground, but never its fill.
+local function style_or(name, fallback)
+  local style = maki.ui.theme_style(name)
+  if not style then
+    return fallback
+  end
+  return { fg = style.fg, bold = style.bold or true, dim = style.dim }
+end
+
+local function peer_styles()
+  return {
+    heading = style_or("heading", { bold = true }),
+    section = style_or("keybind_section", { bold = true }),
+    working = style_or("success", { bold = true, fg = "green" }),
+    waiting = style_or("warning", { bold = true, fg = "yellow" }),
+    dim = style_or("status_dim", { fg = "gray", dim = true }),
+    you = style_or("accent", { bold = true }),
+    tag = style_or("warning", { fg = "yellow" }),
+  }
+end
+
+local MAX_MODEL_CELLS = 26
+
+local function fit_cell(cell, width)
+  if maki.ui.display_width(cell) <= width then
+    return cell
+  end
+  local cut = maki.ui.truncate_text(cell, math.max(0, width - 1))
+  return cut.head .. "…"
+end
+
+local function split_cells(line)
+  local indent = line:match("^ +") or ""
+  line = line:sub(#indent + 1)
+  local cells, pos = {}, 1
+  while true do
+    local start, finish = line:find("  ", pos, true)
+    if not start then
+      cells[#cells + 1] = line:sub(pos)
+      break
+    end
+    cells[#cells + 1] = line:sub(pos, start - 1)
+    pos = finish + 1
+  end
+  return cells, indent
+end
+
+local function pad_cell(cell, width)
+  local gap = width - maki.ui.display_width(cell)
+  if gap <= 0 then
+    return cell
+  end
+  return cell .. string.rep(" ", gap)
+end
+
+local function cell_style(cell, line, styles)
+  if cell:sub(1, 2) == "- " then
+    if line:find("(you)", 1, true) then
+      return styles.you
+    end
+    return nil
+  end
+  if cell == "working" then
+    return styles.working
+  end
+  if cell == "needs_input" then
+    return styles.waiting
+  end
+  if cell == "idle" then
+    return styles.dim
+  end
+  return nil
+end
+
+local function via_index(cells)
+  for j, cell in ipairs(cells) do
+    if cell:sub(1, 4) == "via " then
+      return j
+    end
+  end
+  return nil
+end
+
+-- Two lines per peer: the first carries the id, status and title, the second
+-- the model, directory and host. Neither line has to fight for a narrow
+-- column, so titles and directories keep their full text.
+local function styled_list_lines(plain)
+  local styles = peer_styles()
+  local rows, indents = {}, {}
+  local id_w, status_w, title_w, model_w = 0, 0, 0, 0
+  for i, line in ipairs(plain) do
+    local cells, indent = split_cells(line)
+    rows[i], indents[i] = cells, indent
+    if #cells > 1 then
+      local via = via_index(cells)
+      id_w = math.max(id_w, maki.ui.display_width(cells[1]))
+      status_w = math.max(status_w, maki.ui.display_width(cells[2]))
+      model_w = math.max(model_w, math.min(maki.ui.display_width(cells[3] or "-"), MAX_MODEL_CELLS))
+      if via and via >= 5 then
+        title_w = math.max(title_w, maki.ui.display_width(cells[4] or "-"))
+      end
+    end
+  end
+  local lines = {}
+  for i, line in ipairs(plain) do
+    local cells, indent = rows[i], indents[i]
+    if #cells == 1 then
+      local style = styles.section
+      if line:match("^%d+ peers") then
+        style = styles.heading
+      end
+      lines[#lines + 1] = { { line, style } }
+    else
+      local via = via_index(cells) or #cells
+      local first = {}
+      if indent ~= "" then
+        first[#first + 1] = { indent }
+      end
+      first[#first + 1] = { pad_cell(cells[1], id_w), cell_style(cells[1], line, styles) }
+      first[#first + 1] = { "  " }
+      first[#first + 1] = { pad_cell(cells[2], status_w), cell_style(cells[2], line, styles) }
+      first[#first + 1] = { "  " }
+      first[#first + 1] = { pad_cell(cells[4] or "-", title_w) }
+      for j = via + 1, #cells do
+        first[#first + 1] = { "  " }
+        first[#first + 1] = { cells[j], styles.tag }
+      end
+      lines[#lines + 1] = first
+
+      local second = { { indent .. "  " } }
+      second[#second + 1] = { pad_cell(fit_cell(cells[3] or "-", model_w), model_w), styles.dim }
+      if via >= 5 then
+        for j = 5, via - 1 do
+          second[#second + 1] = { "  " }
+          second[#second + 1] = { cells[j], styles.dim }
+        end
+      end
+      second[#second + 1] = { "  " }
+      second[#second + 1] = { cells[via] or "via -", styles.dim }
+      lines[#lines + 1] = second
+    end
+  end
+  return lines
+end
 
 -- A notice renders one line in the status bar, so the list goes into a float
 -- instead and the command waits in recv until the user dismisses it.
 local function show_peers()
-  local lines, err = peer_list_lines(current_session())
+  local lines, err = peer_list_lines(current_session(), true)
   if not lines then
     maki.notify(err or "could not list peers", "error", { title = "peer" })
     return
   end
+  local styled = styled_list_lines(lines)
   local width = 0
-  for _, line in ipairs(lines) do
-    width = math.max(width, maki.ui.display_width(line))
+  for _, line in ipairs(styled) do
+    local line_width = 0
+    for _, span in ipairs(line) do
+      line_width = line_width + maki.ui.display_width(span[1])
+    end
+    width = math.max(width, line_width)
   end
-  local cols = maki.ui.terminal_size().cols
+  local terminal = maki.ui.terminal_size()
+  local cols = terminal.cols
+  local page_size = math.max(1, terminal.rows - 6)
+  local total = #styled
+  local first = 1
+  local function slice()
+    local rows = {}
+    local last = math.min(total, first + page_size - 1)
+    for i = first, last do
+      rows[#rows + 1] = styled[i]
+    end
+    return rows
+  end
   local buf = maki.ui.buf({ scratch = true })
-  buf:lines(lines)
+  buf:lines(slice())
   local win = maki.ui.open_win(buf, {
     title = " Peers ",
-    width = math.min(width + PEER_WINDOW_MARGIN, cols - PEER_WINDOW_MARGIN),
-    height = #lines + 2,
+    title_pos = "center",
+    width = math.min(width + PEER_WINDOW_MARGIN, PEER_WINDOW_MAX_WIDTH, cols - PEER_WINDOW_MARGIN),
+    height = math.min(total, page_size) + 2,
     border = "rounded",
     focus = true,
-    footer = { { "Esc", "close" } },
+    footer = { { "PgUp/PgDn", "scroll" }, { "Esc", "close" } },
   })
   while true do
     local ev = win:recv()
     if not ev or ev.type == "close" or (ev.type == "key" and ev.key == "<Esc>") then
       break
+    end
+    if ev.type == "key" then
+      local step = 0
+      if ev.key == "<PageDown>" then
+        step = page_size
+      elseif ev.key == "<PageUp>" then
+        step = -page_size
+      elseif ev.key == "<Down>" then
+        step = 1
+      elseif ev.key == "<Up>" then
+        step = -1
+      end
+      if step ~= 0 then
+        local limit = math.max(1, total - page_size + 1)
+        local next = math.max(1, math.min(limit, first + step))
+        if next ~= first then
+          first = next
+          buf:set_lines(slice())
+        end
+      end
     end
   end
   win:close()

@@ -4,10 +4,11 @@
   "type": "module",
   "private": true,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./tui": "./src/tui.ts"
   },
   "dependencies": {
-    "@opencode/plugin": "2.3.2"
+    "@opencode/plugin": "2.4.0"
   },
   "devDependencies": {
     "@types/bun": "1.4.5",

@@ -38,6 +38,28 @@ reports itself as a link rather than a directory, so discovery skips it. A
 symlinked `.ts` file is fine. The `plugins` array forms were not re-tested
 on 2.0.32; only the discovery directory layout was verified.
 
+The `/peer` slash command needs a second part that runs in the TUI. TUI-only
+plugins are registered in `cli.json`, not in the `plugins` directory used by
+the server shim. Put the TUI entrypoint in its own directory and name it there:
+
+```sh
+mkdir -p ~/.config/opencode/tui-plugins/maki-peer
+ln -sf /absolute/path/to/maki-peer/opencode/src/tui.ts \
+  ~/.config/opencode/tui-plugins/maki-peer/tui.ts
+```
+
+```json title="~/.config/opencode/cli.json"
+{
+  "plugins": ["/absolute/path/.config/opencode/tui-plugins/maki-peer"]
+}
+```
+
+A package install can use the `./tui` export instead of a symlink. The TUI part
+registers `/peer` in slash completion and shows the list in a dialog. It reads
+the same spool as the tools and never calls `session.prompt`, so the command
+costs no model turn. Restart the TUI after adding it; plugin directories are
+found at startup.
+
 ## Verify
 
 There is no reliable read-only check, so watch the spool instead. The plugin
@@ -58,8 +80,7 @@ stale within about fifteen seconds instead.
 
 ## Use
 
-There is no `/peer` command on this host. The model controls the feature
-through its tools:
+The model controls the feature through its tools:
 
 - `peer_list` lists every local Maki, OpenCode, Grok, and Vibe session with
   its host, status, model, title, and working directory. Ids are abbreviated
@@ -73,12 +94,10 @@ through its tools:
 - `peer_broadcast` sends one observation to every other peer, optionally
   limited to peers in the same directory.
 
-A slash command was tried and removed. A plugin command on this host has one
-output channel, `session.prompt`, which is a model turn, so a read only
-listing cost a turn and read to the model as something to act on. The command
-returns when upstream lets a command answer without prompting the model:
-tracked in anomalyco/opencode#28292. Maki keeps its `/peer`, which renders in
-a float and sends receipts as notices and therefore has no step.
+`/peer` comes from the TUI part described under Install. It shows the same
+list as `peer_list` in a dialog and starts no model turn. The server plugin
+command API has no output channel of its own, so a server-only install has no
+slash command. Maki's `/peer` renders in a float and also sends and spawns.
 
 ## Session addressing
 

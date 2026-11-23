@@ -6,8 +6,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod common;
 
-use maki_agent::SessionMailbox;
 use maki_agent::tools::ToolRegistry;
+use maki_agent::{SessionMailbox, SpanStyle};
 use maki_lua::test_support::fire_autocmd;
 use maki_lua::{
     ChatItemStatus, ModelRequest, PluginHost, PluginPermissions, SessionRequest, UiAction, UiReply,
@@ -379,6 +379,140 @@ fn peer_command_opens_a_list_window() {
     drop(host);
 }
 
+#[test]
+fn peer_window_uses_styled_columns() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+
+    let mut working = owner_record(
+        "oc-working",
+        "opencode-working",
+        1,
+        Some("/work/a"),
+        Some("zai/glm-5"),
+    );
+    working["status"] = json!("working");
+    write_owner(&state, &working);
+    let mut waiting = owner_record(
+        "oc-waiting",
+        "opencode-waiting",
+        1,
+        Some("/work/b"),
+        Some("zai/glm-5"),
+    );
+    waiting["status"] = json!("needs_input");
+    write_owner(&state, &waiting);
+    write_owner(
+        &state,
+        &owner_record("oc-a", "opencode-a", 1, Some("/work/a"), Some("zai/glm-5")),
+    );
+    write_owner(
+        &state,
+        &owner_record("oc-b", "opencode-b", 1, Some("/work/b"), Some("zai/glm-5")),
+    );
+    write_owner(
+        &state,
+        &owner_record("oc-c", "opencode-c", 1, Some("/work/c"), Some("zai/glm-5")),
+    );
+
+    host.event_handle()
+        .run_command(Arc::from(PLUGIN_NAME), Arc::from("/peer"), String::new(), 0);
+    let action = forward
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the /peer command should open a list window");
+    let UiAction::OpenWin { buf, .. } = action else {
+        panic!("the /peer command should open a list window");
+    };
+    let lines = buf.read();
+    let styled = |needle: &str| {
+        lines.iter().find_map(|line| {
+            let text: String = line.spans.iter().map(|span| span.text.as_str()).collect();
+            if text.contains(needle) {
+                line.spans
+                    .iter()
+                    .find(|span| span.style != SpanStyle::Default)
+                    .map(|span| span.style.clone())
+            } else {
+                None
+            }
+        })
+    };
+    assert!(
+        styled("peers:").is_some(),
+        "the count line should be styled"
+    );
+    assert!(
+        styled("working").is_some(),
+        "working status should be styled"
+    );
+    assert!(
+        styled("needs_input").is_some(),
+        "waiting status should be styled"
+    );
+    assert!(
+        styled("/work/a:").is_some(),
+        "group headings should be styled"
+    );
+
+    let rows: Vec<String> = lines
+        .iter()
+        .map(|line| line.spans.iter().map(|span| span.text.as_str()).collect())
+        .collect();
+    let active = rows.iter().position(|row| row.contains("working")).unwrap();
+    let detail = &rows[active + 1];
+    assert!(
+        detail.contains("zai/glm-5") && detail.contains("via maki"),
+        "the detail line holds the model and host: {detail:?}"
+    );
+    assert!(
+        !rows[active].contains("zai/glm-5"),
+        "the summary line does not repeat the model: {:?}",
+        rows[active]
+    );
+    drop(host);
+}
+
+#[test]
+fn the_peer_window_shows_the_full_title() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+
+    let title = format!("{} tail", "a".repeat(40));
+    let mut record = owner_record("oc-long", "opencode-long", 1, Some("/work"), None);
+    record["title"] = json!(title);
+    write_owner(&state, &record);
+
+    let tool = exec_tool(&registry, "peer_list", json!({})).unwrap();
+    assert!(
+        !tool.contains(&title),
+        "the tool keeps its short title: {tool}"
+    );
+
+    host.event_handle()
+        .run_command(Arc::from(PLUGIN_NAME), Arc::from("/peer"), String::new(), 0);
+    let action = forward
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the /peer command should open a list window");
+    let UiAction::OpenWin { buf, .. } = action else {
+        panic!("the /peer command should open a list window");
+    };
+    let text: String = buf
+        .read()
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .map(|span| span.text.as_str())
+        .collect();
+    assert!(
+        text.contains(&title),
+        "the float keeps the full title: {text}"
+    );
+    drop(host);
+}
+
 /// Build a presence record the way another host would write it.
 fn owner_record(
     id: &str,
@@ -654,6 +788,67 @@ fn the_list_marks_local_and_same_dir() {
         "the session that asked is trivially in its own directory, got: {own}"
     );
     assert!(own.contains("  via maki  "), "got: {own}");
+    drop(host);
+}
+
+#[test]
+fn a_large_list_groups_idle_peers_by_directory() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+
+    let mut active = owner_record(
+        "oc-active",
+        "opencode-active",
+        1,
+        Some("/work/a"),
+        Some("zai/glm-5"),
+    );
+    active["status"] = json!("working");
+    write_owner(&state, &active);
+    write_owner(
+        &state,
+        &owner_record("oc-a", "opencode-a", 1, Some("/work/a"), None),
+    );
+    write_owner(
+        &state,
+        &owner_record("oc-b", "opencode-b", 1, Some("/work/b"), None),
+    );
+    write_owner(
+        &state,
+        &owner_record("oc-c", "opencode-c", 1, Some("/work/b"), None),
+    );
+    write_owner(
+        &state,
+        &owner_record("oc-d", "opencode-d", 1, Some("/work/c"), None),
+    );
+
+    let out = exec_tool(&registry, "peer_list", json!({})).unwrap();
+    assert!(
+        out.starts_with("6 peers: 1 active, 5 idle.\n"),
+        "got: {out}"
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(
+        lines[1].contains("working"),
+        "active peers come first: {out}"
+    );
+    for dir in ["/work/a:", "/work/b:", "/work/c:"] {
+        assert!(lines.contains(&dir), "missing heading {dir}: {out}");
+    }
+    let row = lines
+        .iter()
+        .find(|line| line.trim_start().starts_with("- oc-b"))
+        .unwrap();
+    assert!(
+        row.starts_with("  - oc-"),
+        "grouped rows are indented: {row}"
+    );
+    assert!(
+        !row.contains("/work/b"),
+        "grouped rows omit the directory: {row}"
+    );
     drop(host);
 }
 

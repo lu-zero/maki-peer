@@ -570,17 +570,39 @@ export function formatPeerLines(
 ): string[] {
   const mine = self.sessionID ? peerIdFor(self.sessionID, self.idPrefix ?? "oc") : undefined
   const widths = abbreviateIds(peers.map((peer) => peer.id))
-  const lines = peers.map((peer) => {
+  const render = (peer: Owner, grouped = false): string => {
     const flags: string[] = []
     if (mine && peer.id === mine) flags.push("you")
     if (self.cwd && peer.cwd && !sameTree(peer, self)) flags.push("other dir")
     const suffix = flags.length === 0 ? "" : `  (${flags.join(")  (")})`
     const model = peer.model ?? "-"
-    const cwd = peer.cwd ?? "-"
+    const cwd = grouped ? "" : `  ${peer.cwd ?? "-"}`
     const width = widths.get(peer.id) ?? peer.id.length
-    return `- ${peer.id.slice(0, width)}  ${peer.status}  ${model}  ${listTitle(peer.title)}  ${cwd}  via ${peer.origin?.host ?? "maki"}${suffix}`
-  })
-  if (peers.length <= 1) lines.push("No other local peers are registered.")
+    return `- ${peer.id.slice(0, width)}  ${peer.status}  ${model}  ${listTitle(peer.title)}${cwd}  via ${peer.origin?.host ?? "maki"}${suffix}`
+  }
+  if (peers.length <= 4) {
+    const lines = peers.map((peer) => render(peer))
+    if (peers.length <= 1) lines.push("No other local peers are registered.")
+    return lines
+  }
+  // A shared service can publish dozens of sessions. Put the ones that need
+  // attention first and group the quiet ones by directory so the list is a
+  // set of choices rather than a wall of lines.
+  const active = peers.filter((peer) => peer.status !== "idle")
+  const idle = peers.filter((peer) => peer.status === "idle")
+  const groups = new Map<string, Owner[]>()
+  for (const peer of idle) {
+    const dir = peer.cwd ?? "-"
+    const group = groups.get(dir) ?? []
+    group.push(peer)
+    groups.set(dir, group)
+  }
+  const lines = [`${peers.length} peers: ${active.length} active, ${idle.length} idle.`]
+  for (const peer of active) lines.push(render(peer, true))
+  for (const [dir, group] of groups) {
+    lines.push(`${dir}:`)
+    for (const peer of group) lines.push(`  ${render(peer, true)}`)
+  }
   return lines
 }
 

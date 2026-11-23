@@ -118,11 +118,12 @@ receiving host to start a turn for the note when its session is idle. Only
 Maki can do that today. OpenCode resumes on every delivery, and Grok, Vibe,
 and Claude Code attach the note to the next turn without starting one.
 
-`peer_list` shows one line per live peer. The columns are the id, status,
-model, title, working directory, and host. A peer with no model, title, or
-directory shows a dash. The directory is printed in full. `peer_cwd` returns
-the same directories as a JSON object keyed by the full peer id, with `null`
-for a peer that reports none.
+`peer_list` shows the live peers with their id, status, model, title, working
+directory, and host. A peer with no model, title, or directory shows a dash.
+Lists with more than four peers start with a count, put working and waiting
+peers first, and group idle peers by directory with the full path in the
+heading. `peer_cwd` returns the same directories as a JSON object keyed by the
+full peer id, with `null` for a peer that reports none.
 
 | Host                            | List        | Directories  | Send         | Broadcast         |
 | ------------------------------- | ----------- | ------------ | ------------ | ----------------- |
@@ -136,8 +137,9 @@ The short names in the table are the tool names. Grok prefixes them with
 `peer__`, Vibe with `mcp_peer.`, and Claude Code with
 `mcp__plugin_maki-peer_peer__`.
 
-`/peer` and `peer_spawn` exist only on Maki. `peer_spawn` starts a detached
-`tmux` session. The model spec is `provider/model-id`.
+`/peer` lists peers on Maki and, with the TUI part installed, on OpenCode. On
+Maki it also sends and spawns. `peer_spawn` exists only on Maki and starts a
+detached `tmux` session. The model spec is `provider/model-id`.
 
 ```text
 /peer
@@ -145,8 +147,9 @@ The short names in the table are the tool names. Grok prefixes them with
 /peer spawn tmux Investigate the failing integration test
 ```
 
-Ids, the `session` field, delivery, and the local-only limits are in
-[Architecture](docs/architecture.md).
+The use cases, including waking a team in one run, are in
+[Use cases](docs/use-cases.md). Ids, the `session` field, delivery, and the
+local-only limits are in [Architecture](docs/architecture.md).
 
 ## Develop
 
