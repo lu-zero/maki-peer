@@ -164,15 +164,15 @@ session, so the limit documented in [Vibe](../vibe/README.md) still holds.
 ## Decisions
 
 - `PostToolUse` and `Stop` are the two events where the hook attaches
-  `additionalContext`. A turn start hook would be better for idle mail, but
-  no Claude hook can do it yet. The optional channel bridge covers the gap
-  where it is enabled.
+  `additionalContext`. Idle mail is the plugin monitor's job.
 - The session id comes from the hook's `session_id`. A hash of it gives `cc-`
   ids the same way OpenCode and Vibe build theirs.
 - Presence is kept fresh by a hook started daemon. It keeps its lock, heartbeat
   and session files in `claude-peer` beside the spool, never in the spool.
-- `wake` cannot start a Claude turn. The note waits for the next one, and the
-  shared tool description says that hosts differ.
+- `wake` starts a Claude turn through a plugin monitor, whose output line wakes
+  an idle session. It needs no startup flag, unlike a channel, and has no
+  timeout to re-arm, unlike an `asyncRewake` hook. The docs do not promise the
+  wake, so it was checked live on Claude Code 2.1.330.
 - Tools use Claude's scoped MCP names so the built in `SendMessage` and
   `ListAgents` are untouched.
 - Description parity is checked in `tests/plugin.rs` across all five hosts.

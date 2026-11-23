@@ -54,8 +54,8 @@ worktrees are not the same directory. There is no undo. Sending to your own
 session is refused. Sending to another session of your own host works.
 
 The optional `wake` field asks the receiving host to start a turn for the
-note. Maki does that. OpenCode resumes the session on every delivery, and
-Grok, Vibe, and Claude Code attach the note to a later turn without starting
+note. Maki and Claude Code do that. OpenCode resumes the session on every
+delivery, and Grok and Vibe attach the note to a later turn without starting
 one. The field is written on every host so records stay alike.
 
 On Vibe, `cwd` is recorded when a tool starts. Until that happens,

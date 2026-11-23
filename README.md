@@ -114,9 +114,9 @@ the topic when there is none.
 peer. `same_dir_only` limits a broadcast to one directory, compared after
 trailing slashes are removed. A peer with no directory never matches. There
 is no undo. Sending to your own session is refused. `wake: true` asks the
-receiving host to start a turn for the note when its session is idle. Only
-Maki can do that today. OpenCode resumes on every delivery, and Grok, Vibe,
-and Claude Code attach the note to the next turn without starting one.
+receiving host to start a turn for the note when its session is idle. Maki
+and Claude Code do that. OpenCode resumes on every delivery, and Grok and Vibe
+attach the note to the next turn without starting one.
 
 `peer_list` shows the live peers with their id, status, model, title, working
 directory, and host. A peer with no model, title, or directory shows a dash.

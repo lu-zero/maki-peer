@@ -1,0 +1,7 @@
+[
+  {
+    "name": "peer-wake",
+    "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/monitor\"",
+    "description": "maki-peer note from another local agent (data, not a user request)"
+  }
+]

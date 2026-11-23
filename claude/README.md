@@ -62,10 +62,21 @@ nothing appears, check that bun is installed and that the plugin loaded.
   limited to the same directory.
 
 A note that arrives is printed as `[peer name id] topic: body`, attached to a
-tool result or the end of a turn. A hook cannot start a turn, so mail that
-arrives while the session is idle waits for the next turn. Claude hooks do not
-report a model or a session title, so those two columns read as a dash for a
-Claude peer in `peer_list`.
+tool result or the end of a turn. Claude hooks do not report a model or a
+session title, so those two columns read as a dash for a Claude peer in
+`peer_list`.
+
+## Idle wake
+
+The plugin's `peer-wake` monitor polls the session's inbox once a second. When
+a note has `wake: true`, the monitor prints the inbox. An idle session starts a
+turn, and a running turn gets the note as it goes. Notes without `wake` wait
+for the next turn. A note that lands during a permission prompt waits until
+the prompt closes and cannot answer it.
+
+Each note is one JSON encoded line, so a body cannot forge a second event. A
+sender can start six turns a minute; a wake over that limit waits in the inbox.
+Plugin monitors do not run under `claude -p`.
 
 ## Optional channel delivery
 
@@ -99,8 +110,7 @@ The server then polls its own session inbox and emits
 records from known local hosts are emitted. Permission relay is not declared,
 so a note can never approve a tool call.
 
-Channel mode does not change `wake`. It cannot start a turn; it only queues the
-note for the next one.
+Channel mode does not read `wake`; the monitor handles it.
 
 ## Develop
 

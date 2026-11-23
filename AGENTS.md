@@ -73,7 +73,7 @@ The five hosts write presence records to `owners/<peer-id>.json` and messages to
 
 Grok keeps its own runtime files in a `grok-peer` directory beside the spool root: session state, the helper's port and heartbeat, and mail that is waiting for another Grok session. Claude keeps its runtime files in `claude-peer` beside the spool root. Those files are not protocol records. Vibe keeps its session state in the per-session `PLUGIN_DATA` directory Vibe assigns, which is also not a protocol record.
 
-Three rules keep the hosts compatible. Records carry `origin.host`, and a `session` field is honoured only when it names the reading host's own id format, because an id means nothing on the other side. A message that can never be delivered, because it names a session or host that is gone, is dropped and logged rather than retried until it expires. The `wake` field is written by every host but only Maki starts a turn from it; the tool description says so, so keep the five copies equal when it changes.
+Three rules keep the hosts compatible. Records carry `origin.host`, and a `session` field is honoured only when it names the reading host's own id format, because an id means nothing on the other side. A message that can never be delivered, because it names a session or host that is gone, is dropped and logged rather than retried until it expires. The `wake` field is written by every host, but only Maki and Claude Code start a turn from it; the tool description says hosts differ, so keep the five copies equal when it changes.
 
 ## Docs
 
