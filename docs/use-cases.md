@@ -48,8 +48,8 @@ A note that matters is worth delivering to a session that has not moved
 recently.
 
 `wake: true` asks the receiving host to start a turn for the note when its
-session is idle. Only Maki does that today. OpenCode resumes on every delivery.
-Grok, Vibe, and Claude Code attach the note to the next turn without starting
+session is idle. Maki and Claude Code do that. OpenCode resumes on every
+delivery, and Grok and Vibe attach the note to the next turn without starting
 one.
 
 ## Hand work across harnesses
