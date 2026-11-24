@@ -14,6 +14,8 @@ use maki_lua::{
 };
 use maki_storage::id::{MakiId, SessionRef};
 use serde_json::json;
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::oneshot;
 
 const PLUGIN_NAME: &str = "maki-peer";
 const MODEL_SPEC: &str = "zai/glm-5.3-flash";
@@ -70,9 +72,16 @@ fn manifest_permissions() -> PluginPermissions {
     PluginPermissions::from_approved(names)
 }
 
+/// The host hands its UI action receiver out once, so a test takes it before
+/// anything else does.
+fn ui_actions(host: &mut PluginHost) -> UnboundedReceiver<UiAction> {
+    host.take_ui_action_rx()
+        .expect("the host keeps a UI receiver until a test takes it")
+}
+
 /// Answer `maki.model.get` roundtrips the way the UI event loop would, and
 /// forward every other action for the assertions to observe.
-fn serve_ui_actions(rx: flume::Receiver<UiAction>, title: &str) -> mpsc::Receiver<UiAction> {
+fn serve_ui_actions(rx: UnboundedReceiver<UiAction>, title: &str) -> mpsc::Receiver<UiAction> {
     serve_ui_actions_with(rx, title, true)
 }
 
@@ -80,14 +89,14 @@ fn serve_ui_actions(rx: flume::Receiver<UiAction>, title: &str) -> mpsc::Receive
 /// loop looks like: `open_editor` holds the event loop for as long as it is up,
 /// and `ui_roundtrip` carries no deadline on purpose.
 fn serve_ui_actions_ignoring_reads(
-    rx: flume::Receiver<UiAction>,
+    rx: UnboundedReceiver<UiAction>,
     title: &str,
 ) -> mpsc::Receiver<UiAction> {
     serve_ui_actions_with(rx, title, false)
 }
 
 fn serve_ui_actions_with(
-    rx: flume::Receiver<UiAction>,
+    mut rx: UnboundedReceiver<UiAction>,
     title: &str,
     answer_reads: bool,
 ) -> mpsc::Receiver<UiAction> {
@@ -103,8 +112,8 @@ fn serve_ui_actions_with(
         // Dropping one makes recv_async fail at once with UI_DROPPED_ERR, so a
         // dropped channel models a torn down UI, not a busy one. A busy loop
         // keeps the channel open and simply never replies, and only that parks.
-        let mut held: Vec<flume::Sender<UiReply>> = Vec::new();
-        while let Ok(action) = rx.recv() {
+        let mut held: Vec<oneshot::Sender<UiReply>> = Vec::new();
+        while let Some(action) = smol::block_on(rx.recv()) {
             match action {
                 UiAction::Model {
                     req: ModelRequest::Get,
@@ -335,8 +344,8 @@ fn inbound_with_topic(
 fn peer_command_opens_a_list_window() {
     let (_temp, _state) = common::isolated_state();
 
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     host.event_handle()
@@ -382,8 +391,8 @@ fn peer_command_opens_a_list_window() {
 #[test]
 fn peer_window_uses_styled_columns() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     let mut working = owner_record(
@@ -477,8 +486,8 @@ fn peer_window_uses_styled_columns() {
 #[test]
 fn the_peer_window_shows_the_full_title() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     let title = format!("{} tail", "a".repeat(40));
@@ -570,8 +579,8 @@ fn cwd() -> String {
 #[test]
 fn a_name_suffix_resolves_to_a_peer() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -592,8 +601,8 @@ fn a_name_suffix_resolves_to_a_peer() {
 #[test]
 fn an_id_abbreviation_grows_until_the_peers_differ() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     let twins = ["oc-abc123def4567890", "oc-abc123def4567899"];
@@ -627,8 +636,8 @@ fn an_id_abbreviation_grows_until_the_peers_differ() {
 #[test]
 fn an_id_prefix_resolves_to_a_peer() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -648,8 +657,8 @@ fn an_id_prefix_resolves_to_a_peer() {
 #[test]
 fn an_unmatched_target_lists_the_candidates() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -674,8 +683,8 @@ fn an_unmatched_target_lists_the_candidates() {
 #[test]
 fn an_ambiguous_target_reports_every_match() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -702,8 +711,8 @@ fn an_ambiguous_target_reports_every_match() {
 #[test]
 fn a_stale_match_says_the_peer_may_have_exited() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -727,8 +736,8 @@ fn a_stale_match_says_the_peer_may_have_exited() {
 #[test]
 fn the_presence_record_carries_the_working_directory() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -751,8 +760,8 @@ fn the_presence_record_carries_the_working_directory() {
 #[test]
 fn the_list_marks_local_and_same_dir() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -794,8 +803,8 @@ fn the_list_marks_local_and_same_dir() {
 #[test]
 fn a_large_list_groups_idle_peers_by_directory() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     let mut active = owner_record(
@@ -855,8 +864,8 @@ fn a_large_list_groups_idle_peers_by_directory() {
 #[test]
 fn peer_cwd_reports_each_live_peer_directory() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -882,8 +891,8 @@ fn peer_cwd_reports_each_live_peer_directory() {
 #[test]
 fn a_peer_without_a_cwd_is_simply_not_same_dir() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -905,8 +914,8 @@ fn a_peer_without_a_cwd_is_simply_not_same_dir() {
 #[test]
 fn an_unparsable_record_is_dropped_rather_than_re_read_forever() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -933,8 +942,8 @@ fn a_record_that_cannot_be_read_yet_is_left_for_the_next_pass() {
     use std::os::unix::fs::PermissionsExt;
 
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -980,8 +989,8 @@ fn a_record_that_cannot_be_read_yet_is_left_for_the_next_pass() {
 #[test]
 fn a_title_with_unicode_punctuation_renders_byte_for_byte() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     // Controls must go, but an en dash and CJK are punctuation and content
@@ -1029,8 +1038,8 @@ fn a_title_with_unicode_punctuation_renders_byte_for_byte() {
 #[test]
 fn same_dir_only_broadcast_skips_peers_in_other_directories() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -1081,8 +1090,8 @@ fn same_dir_only_broadcast_skips_peers_in_other_directories() {
 fn two_plugin_hosts_exchange_an_observation() {
     let (_temp, state) = common::isolated_state();
 
-    let (first_registry, first_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _first_forward = serve_ui_actions(first_host.ui_action_rx(), SESSION_TITLE);
+    let (first_registry, mut first_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _first_forward = serve_ui_actions(ui_actions(&mut first_host), SESSION_TITLE);
     let first_output = exec_tool(&first_registry, "peer_list", json!({})).unwrap();
     assert!(first_output.contains(" via maki "), "got: {first_output}");
     assert!(first_output.contains("(you)"), "got: {first_output}");
@@ -1097,8 +1106,8 @@ fn two_plugin_hosts_exchange_an_observation() {
         "peer list should show the running model, got: {first_output}"
     );
 
-    let (second_registry, second_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let second_forward = serve_ui_actions(second_host.ui_action_rx(), SESSION_TITLE);
+    let (second_registry, mut second_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let second_forward = serve_ui_actions(ui_actions(&mut second_host), SESSION_TITLE);
     exec_tool_as(&second_registry, "peer_list", json!({}), 1).unwrap();
     let second_id = owner_ids(&state)
         .into_iter()
@@ -1156,8 +1165,8 @@ fn two_plugin_hosts_exchange_an_observation() {
 fn queued_messages_name_the_sending_host() {
     let (_temp, state) = common::isolated_state();
 
-    let (first_registry, first_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(first_host.ui_action_rx(), SESSION_TITLE);
+    let (first_registry, mut first_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut first_host), SESSION_TITLE);
     let first_id = {
         exec_tool(&first_registry, "peer_list", json!({})).unwrap();
         owner_ids(&state)
@@ -1166,8 +1175,8 @@ fn queued_messages_name_the_sending_host() {
             .expect("first peer should register")
     };
 
-    let (second_registry, second_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(second_host.ui_action_rx(), SESSION_TITLE);
+    let (second_registry, mut second_host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut second_host), SESSION_TITLE);
     exec_tool_as(&second_registry, "peer_list", json!({}), 1).unwrap();
     let second_id = owner_ids(&state)
         .into_iter()
@@ -1215,8 +1224,8 @@ fn queued_messages_name_the_sending_host() {
 fn a_foreign_host_session_id_is_ignored_and_the_local_session_is_used() {
     let (_temp, state) = common::isolated_state();
 
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -1262,8 +1271,8 @@ fn a_foreign_host_session_id_is_ignored_and_the_local_session_is_used() {
 fn a_message_for_a_dead_session_is_dropped_instead_of_retried() {
     let (_temp, state) = common::isolated_state();
 
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -1305,8 +1314,8 @@ fn a_message_for_a_dead_session_is_dropped_instead_of_retried() {
 fn peer_list_reports_the_focused_session_status() {
     let (_temp, _state) = common::isolated_state();
 
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     let live = MakiId::generate();
@@ -1357,10 +1366,10 @@ fn wait_for_title(state: &Path, id: &str, expected: &str) -> serde_json::Value {
 fn a_session_title_is_published_sanitised() {
     let (_temp, state) = common::isolated_state();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let (registry, host) = plugin_host(root);
+    let (registry, mut host) = plugin_host(root);
 
     let raw = "  review\u{1}\u{2} the\u{3}   PR\t\ttoday\u{7}  ";
-    let _forward = serve_ui_actions(host.ui_action_rx(), raw);
+    let _forward = serve_ui_actions(ui_actions(&mut host), raw);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -1378,13 +1387,13 @@ fn a_session_title_is_published_sanitised() {
 fn a_long_session_title_is_capped_on_a_rune_boundary() {
     let (_temp, state) = common::isolated_state();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let (registry, host) = plugin_host(root);
+    let (registry, mut host) = plugin_host(root);
 
     // 70 em dashes, three bytes each, so a byte-wise cap would land inside one
     // and a rune-wise one cannot.
     let raw = "\u{2014}".repeat(70);
     assert_eq!(raw.len(), 210, "fixture should be three bytes per rune");
-    let _forward = serve_ui_actions(host.ui_action_rx(), &raw);
+    let _forward = serve_ui_actions(ui_actions(&mut host), &raw);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -1407,9 +1416,9 @@ fn a_long_session_title_is_capped_on_a_rune_boundary() {
 fn a_title_of_only_whitespace_is_not_published() {
     let (_temp, state) = common::isolated_state();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let (registry, host) = plugin_host(root);
+    let (registry, mut host) = plugin_host(root);
 
-    let _forward = serve_ui_actions(host.ui_action_rx(), " \u{1}\t\u{2} ");
+    let _forward = serve_ui_actions(ui_actions(&mut host), " \u{1}\t\u{2} ");
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -1457,8 +1466,8 @@ fn a_title_of_only_whitespace_is_not_published() {
 #[test]
 fn an_arriving_message_shows_a_step() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -1497,8 +1506,8 @@ fn an_arriving_message_shows_a_step() {
 #[test]
 fn a_step_is_labelled_with_the_sender() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -1553,8 +1562,8 @@ fn a_step_is_labelled_with_the_sender() {
 #[test]
 fn the_topic_sanitising_matches_the_shared_fixture() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     let fixture: serde_json::Value = serde_json::from_str(
@@ -1629,8 +1638,8 @@ fn the_topic_sanitising_matches_the_shared_fixture() {
 #[test]
 fn a_foreign_title_is_sanitised_on_the_way_in() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     let mut record = owner_record("oc-abc123def4567890", "opencode-072f28", 1, None, None);
@@ -1656,8 +1665,8 @@ fn a_foreign_title_is_sanitised_on_the_way_in() {
 #[test]
 fn an_unknown_status_from_a_foreign_record_is_read_as_idle() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     let mut record = owner_record("oc-abc123def4567890", "opencode-072f28", 1, None, None);
@@ -1685,8 +1694,8 @@ fn an_unknown_status_from_a_foreign_record_is_read_as_idle() {
 #[test]
 fn a_broadcast_counts_only_the_messages_it_queued() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -1710,8 +1719,8 @@ fn a_broadcast_counts_only_the_messages_it_queued() {
 #[test]
 fn a_session_is_written_only_for_a_peer_on_this_host() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     // A maki peer: its record carries no origin, so it is on this host.
@@ -1785,8 +1794,8 @@ fn a_session_is_written_only_for_a_peer_on_this_host() {
 #[test]
 fn an_unknown_kind_is_refused() {
     let (_temp, _state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     let err = exec_tool(
@@ -1809,8 +1818,8 @@ fn an_unknown_kind_is_refused() {
 #[test]
 fn a_topic_leads_the_message() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -1857,8 +1866,8 @@ fn a_topic_leads_the_message() {
 #[test]
 fn a_topic_is_sanitised_on_the_way_in() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(
@@ -1900,8 +1909,8 @@ fn a_topic_is_sanitised_on_the_way_in() {
 #[test]
 fn a_message_without_a_topic_is_unchanged() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -1933,8 +1942,8 @@ fn a_message_without_a_topic_is_unchanged() {
 #[test]
 fn a_step_for_another_session_says_so() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let forward = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -1973,11 +1982,74 @@ fn a_step_for_another_session_says_so() {
     drop(host);
 }
 
+/// A host on another item contract refuses the step after the message was
+/// delivered, so the notice stands in for it instead of leaving the reader
+/// with nothing.
+#[test]
+fn a_refused_step_falls_back_to_a_notice() {
+    let (temp, state) = common::isolated_state();
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let package = temp.path().join("package");
+    fs::create_dir_all(package.join("plugin")).unwrap();
+    for file in ["plugin.toml", "plugin/maki_peer.lua"] {
+        fs::copy(manifest_dir.join(file), package.join(file)).unwrap();
+    }
+    // The contract before its review wanted `session_id`.
+    fs::write(
+        package.join("plugin/zz_chat_item.lua"),
+        r#"maki.ui.chat_item = function()
+  error("chat_item: 'session_id' is required")
+end
+"#,
+    )
+    .unwrap();
+    let (registry, mut host) = plugin_host(&package);
+    let forward = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    let live = MakiId::generate();
+    let _mailbox = SessionMailbox::register(live);
+    fire_autocmd(
+        &host.event_handle(),
+        "SessionStatusChanged",
+        json!({ "session_id": live.to_string(), "status": "idle" }),
+    );
+    write_inbound(
+        &state,
+        &id,
+        inbound(
+            &id,
+            "a note from the other side",
+            Some(&live.to_string()),
+            Some("maki"),
+        ),
+    );
+
+    loop {
+        let action = forward
+            .recv_timeout(Duration::from_secs(5))
+            .expect("a refused step should fall back to a notice");
+        let UiAction::Flash(message) = action else {
+            continue;
+        };
+        assert!(
+            message.contains("a note from the other side"),
+            "the notice should carry the message, got: {message}"
+        );
+        break;
+    }
+    drop(host);
+}
+
 #[test]
 fn a_busy_ui_does_not_stop_delivery() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions_ignoring_reads(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions_ignoring_reads(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -2013,8 +2085,8 @@ fn a_busy_ui_does_not_stop_delivery() {
 #[test]
 fn a_received_wake_flag_wakes_the_session() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -2056,7 +2128,7 @@ fn a_received_wake_flag_wakes_the_session() {
 fn a_wake_message_wakes_under_the_manifests_own_grants() {
     let (_temp, state) = common::isolated_state();
     let registry = Arc::new(ToolRegistry::new());
-    let host = PluginHost::new(Arc::clone(&registry)).unwrap();
+    let mut host = PluginHost::new(Arc::clone(&registry)).unwrap();
     host.load_package(
         PLUGIN_NAME,
         Path::new(env!("CARGO_MANIFEST_DIR")),
@@ -2064,7 +2136,7 @@ fn a_wake_message_wakes_under_the_manifests_own_grants() {
         Default::default(),
     )
     .unwrap();
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -2105,8 +2177,8 @@ fn a_wake_message_wakes_under_the_manifests_own_grants() {
 #[test]
 fn a_received_message_without_wake_does_not_wake() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
     let id = owner_ids(&state)
         .into_iter()
@@ -2142,8 +2214,8 @@ fn a_received_message_without_wake_does_not_wake() {
 #[test]
 fn peer_send_with_wake_writes_the_flag() {
     let (_temp, state) = common::isolated_state();
-    let (registry, host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
-    let _ = serve_ui_actions(host.ui_action_rx(), SESSION_TITLE);
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
     exec_tool(&registry, "peer_list", json!({})).unwrap();
 
     write_owner(

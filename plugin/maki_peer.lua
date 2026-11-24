@@ -802,6 +802,18 @@ end
 -- transcript whichever tab is focused. The step says when that is another
 -- session than the focused one, so the reader does not look for the message
 -- in the wrong place.
+--
+-- The host enforces the item contract (`session`, and `title` on every
+-- update) with a runtime error, and a host on another contract gets the notice
+-- instead of silence.
+local function draw_step(item, detail)
+  item.status = "running"
+  maki.ui.chat_item(item)
+  item.status = "done"
+  item.detail = detail
+  maki.ui.chat_item(item)
+end
+
 local function draw_message(message, target)
   local body = body_line(message)
   local focused = runtime.current_session
@@ -813,12 +825,16 @@ local function draw_message(message, target)
   -- transcript, so it is sanitised like any other free text. A name is the
   -- sender's own, so this only matters for a record that was forged.
   local label = sanitize_text(message.from_name, MAX_NAME_RUNES) or "peer"
-  if type(maki.ui.chat_item) == "function" then
-    local id = "peer:" .. message.id
-    local session = target and tostring(target) or nil
-    maki.ui.chat_item({ id = id, session_id = session, label = label, title = body, status = "running" })
-    maki.ui.chat_item({ id = id, session_id = session, label = label, status = "done", detail = body .. elsewhere })
+  local session = target and tostring(target)
+  local item = { id = "peer:" .. message.id, session = session, label = label, title = body }
+  local drawn, step_err = session
+    and type(maki.ui.chat_item) == "function"
+    and pcall(draw_step, item, body .. elsewhere)
+  if drawn then
     return
+  end
+  if step_err then
+    maki.log.warn("peer step: " .. tostring(step_err))
   end
   maki.notify(body, "info", { title = label })
 end

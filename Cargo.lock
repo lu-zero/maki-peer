@@ -1653,6 +1653,17 @@ dependencies = [
 
 [[package]]
 name = "fancy-regex"
+version = "0.19.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d301f5bf187b3c295fce6468d3875037a0bccc5f6b151c63cac2f85babf21912"
+dependencies = [
+ "bit-set",
+ "regex-automata",
+ "regex-syntax",
+]
+
+[[package]]
+name = "fancy-regex"
 version = "0.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0a2e16b9a584b602f1e0e5e22c30ca0906786088c27500653e432d086def8b53"
@@ -1667,9 +1678,6 @@ name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
-dependencies = [
- "getrandom 0.4.3",
-]
 
 [[package]]
 name = "fdeflate"
@@ -1716,18 +1724,6 @@ dependencies = [
  "borrow-or-share",
  "ref-cast",
  "serde",
-]
-
-[[package]]
-name = "flume"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e139bc46ca777eb5efaf62df0ab8cc5fd400866427e56c68b22e414e53bd3be"
-dependencies = [
- "fastrand",
- "futures-core",
- "futures-sink",
- "spin",
 ]
 
 [[package]]
@@ -2715,15 +2711,15 @@ dependencies = [
 
 [[package]]
 name = "jsonschema"
-version = "0.61.2"
+version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e37f27df77c7887edbc5f5a59ecd8e5ec4a669319266ec1b61068667a603183"
+checksum = "a42a11b47492e6a2cc76e9c7bcc8077776cb31dac444e0795d7f61bcc6441c08"
 dependencies = [
  "ahash",
  "bytecount",
  "data-encoding",
  "email_address",
- "fancy-regex 0.20.2",
+ "fancy-regex 0.19.2",
  "fraction",
  "getrandom 0.3.4",
  "itoa",
@@ -2743,18 +2739,18 @@ dependencies = [
 
 [[package]]
 name = "jsonschema-regex"
-version = "0.61.2"
+version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e41151614b6c927e21982be8bef5a26741ae5a0ae6a781eedee2aa930a980e6"
+checksum = "107aeb6ff14b8deb5610096a8ce5c554ec89806b521147eaeb3cae05b07edb7a"
 dependencies = [
  "regex-syntax",
 ]
 
 [[package]]
 name = "jsonschema-value"
-version = "0.61.2"
+version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1515b9a91134ef67d7bac95c2d76fbc7e383c4c55ee544204ceec8088f881fef"
+checksum = "e281d6b177bb4834f2ffd6f92aa0443cffe29c996b251c8d94eb6f456186feba"
 dependencies = [
  "ahash",
  "bytecount",
@@ -2887,13 +2883,12 @@ dependencies = [
 
 [[package]]
 name = "maki-agent"
-version = "0.7.1"
-source = "git+https://github.com/lu-zero/maki?rev=d374735a57af99e1abe5c83f9078cf5ad8070ef0#d374735a57af99e1abe5c83f9078cf5ad8070ef0"
+version = "0.7.3"
+source = "git+https://github.com/lu-zero/maki?rev=229386fb#229386fbf5c858cb02d65514cfbf421c2b8f3164"
 dependencies = [
  "arc-swap",
  "async-trait",
  "bitflags",
- "flume",
  "futures",
  "grep-regex",
  "grep-searcher",
@@ -2931,9 +2926,10 @@ dependencies = [
 
 [[package]]
 name = "maki-config"
-version = "0.7.1"
-source = "git+https://github.com/lu-zero/maki?rev=d374735a57af99e1abe5c83f9078cf5ad8070ef0#d374735a57af99e1abe5c83f9078cf5ad8070ef0"
+version = "0.7.3"
+source = "git+https://github.com/lu-zero/maki?rev=229386fb#229386fbf5c858cb02d65514cfbf421c2b8f3164"
 dependencies = [
+ "arc-swap",
  "dotenvy",
  "globset",
  "inventory",
@@ -2950,8 +2946,8 @@ dependencies = [
 
 [[package]]
 name = "maki-config-macro"
-version = "0.7.1"
-source = "git+https://github.com/lu-zero/maki?rev=d374735a57af99e1abe5c83f9078cf5ad8070ef0#d374735a57af99e1abe5c83f9078cf5ad8070ef0"
+version = "0.7.3"
+source = "git+https://github.com/lu-zero/maki?rev=229386fb#229386fbf5c858cb02d65514cfbf421c2b8f3164"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2960,20 +2956,21 @@ dependencies = [
 
 [[package]]
 name = "maki-highlight"
-version = "0.7.1"
-source = "git+https://github.com/lu-zero/maki?rev=d374735a57af99e1abe5c83f9078cf5ad8070ef0#d374735a57af99e1abe5c83f9078cf5ad8070ef0"
+version = "0.7.3"
+source = "git+https://github.com/lu-zero/maki?rev=229386fb#229386fbf5c858cb02d65514cfbf421c2b8f3164"
 dependencies = [
- "flume",
+ "arc-swap",
  "serde_json",
  "syntect",
+ "tokio",
  "tracing",
  "two-face",
 ]
 
 [[package]]
 name = "maki-interpreter"
-version = "0.7.1"
-source = "git+https://github.com/lu-zero/maki?rev=d374735a57af99e1abe5c83f9078cf5ad8070ef0#d374735a57af99e1abe5c83f9078cf5ad8070ef0"
+version = "0.7.3"
+source = "git+https://github.com/lu-zero/maki?rev=229386fb#229386fbf5c858cb02d65514cfbf421c2b8f3164"
 dependencies = [
  "getrandom 0.4.3",
  "monty",
@@ -2985,13 +2982,12 @@ dependencies = [
 
 [[package]]
 name = "maki-lua"
-version = "0.7.1"
-source = "git+https://github.com/lu-zero/maki?rev=d374735a57af99e1abe5c83f9078cf5ad8070ef0#d374735a57af99e1abe5c83f9078cf5ad8070ef0"
+version = "0.7.3"
+source = "git+https://github.com/lu-zero/maki?rev=229386fb#229386fbf5c858cb02d65514cfbf421c2b8f3164"
 dependencies = [
  "arc-swap",
  "base64 0.23.1",
  "crossterm",
- "flume",
  "futures",
  "htmd",
  "image",
@@ -3067,8 +3063,8 @@ dependencies = [
 
 [[package]]
 name = "maki-lua-macro"
-version = "0.7.1"
-source = "git+https://github.com/lu-zero/maki?rev=d374735a57af99e1abe5c83f9078cf5ad8070ef0#d374735a57af99e1abe5c83f9078cf5ad8070ef0"
+version = "0.7.3"
+source = "git+https://github.com/lu-zero/maki?rev=229386fb#229386fbf5c858cb02d65514cfbf421c2b8f3164"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3077,8 +3073,8 @@ dependencies = [
 
 [[package]]
 name = "maki-markdown"
-version = "0.7.1"
-source = "git+https://github.com/lu-zero/maki?rev=d374735a57af99e1abe5c83f9078cf5ad8070ef0#d374735a57af99e1abe5c83f9078cf5ad8070ef0"
+version = "0.7.3"
+source = "git+https://github.com/lu-zero/maki?rev=229386fb#229386fbf5c858cb02d65514cfbf421c2b8f3164"
 dependencies = [
  "maki-highlight",
  "unicode-segmentation",
@@ -3087,8 +3083,8 @@ dependencies = [
 
 [[package]]
 name = "maki-otel"
-version = "0.7.1"
-source = "git+https://github.com/lu-zero/maki?rev=d374735a57af99e1abe5c83f9078cf5ad8070ef0#d374735a57af99e1abe5c83f9078cf5ad8070ef0"
+version = "0.7.3"
+source = "git+https://github.com/lu-zero/maki?rev=229386fb#229386fbf5c858cb02d65514cfbf421c2b8f3164"
 dependencies = [
  "http",
  "maki-config",
@@ -3105,8 +3101,8 @@ dependencies = [
 
 [[package]]
 name = "maki-pack"
-version = "0.7.1"
-source = "git+https://github.com/lu-zero/maki?rev=d374735a57af99e1abe5c83f9078cf5ad8070ef0#d374735a57af99e1abe5c83f9078cf5ad8070ef0"
+version = "0.7.3"
+source = "git+https://github.com/lu-zero/maki?rev=229386fb#229386fbf5c858cb02d65514cfbf421c2b8f3164"
 dependencies = [
  "maki-storage",
  "serde",
@@ -3119,27 +3115,27 @@ dependencies = [
 name = "maki-peer"
 version = "0.1.0"
 dependencies = [
- "flume",
  "maki-agent",
  "maki-lua",
  "maki-storage",
  "serde_json",
  "smol",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
 name = "maki-providers"
-version = "0.7.1"
-source = "git+https://github.com/lu-zero/maki?rev=d374735a57af99e1abe5c83f9078cf5ad8070ef0#d374735a57af99e1abe5c83f9078cf5ad8070ef0"
+version = "0.7.3"
+source = "git+https://github.com/lu-zero/maki?rev=229386fb#229386fbf5c858cb02d65514cfbf421c2b8f3164"
 dependencies = [
+ "arc-swap",
  "aws-config",
  "aws-credential-types",
  "aws-sigv4",
  "base64 0.23.1",
  "bytes",
  "fastrand",
- "flume",
  "futures",
  "getrandom 0.4.3",
  "image",
@@ -3167,17 +3163,20 @@ dependencies = [
 
 [[package]]
 name = "maki-storage"
-version = "0.7.1"
-source = "git+https://github.com/lu-zero/maki?rev=d374735a57af99e1abe5c83f9078cf5ad8070ef0#d374735a57af99e1abe5c83f9078cf5ad8070ef0"
+version = "0.7.3"
+source = "git+https://github.com/lu-zero/maki?rev=229386fb#229386fbf5c858cb02d65514cfbf421c2b8f3164"
 dependencies = [
  "bs58",
  "etcetera",
+ "futures",
  "getrandom 0.4.3",
  "reqwest",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
  "tracing",
  "uuid",
 ]
@@ -3346,9 +3345,9 @@ dependencies = [
 
 [[package]]
 name = "monty"
-version = "1.5.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd3e3404a0a11ea8669e30dab21b27462554536b29500b75824582ce850ebbbe"
+checksum = "f4f97929e824988444863bed787476e03d7b3d1b21a95c33a9bb31466a67ccd7"
 dependencies = [
  "ahash",
  "chrono",
@@ -3388,9 +3387,9 @@ dependencies = [
 
 [[package]]
 name = "monty-macros"
-version = "1.5.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42f92efd684a093a15b538139f8cc82a7c9c7c58fc2aa4733ecf32fd979e44ab"
+checksum = "11f486980c1b8c952f5caa24979e04d64c92732253209c22b65632cbce78ff9c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3399,9 +3398,9 @@ dependencies = [
 
 [[package]]
 name = "monty-types"
-version = "1.5.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a6d36dbb6f4f754e5f12ad3040e5c1d0455aee431f46cd48d36cf309e58691a"
+checksum = "f5ab5cdd7efd4b4e67630d7f80c4ad4268b1808f9341a0e00aa7c7f5061ebfb7"
 dependencies = [
  "chrono",
  "jiff",
@@ -4516,9 +4515,9 @@ dependencies = [
 
 [[package]]
 name = "referencing"
-version = "0.61.2"
+version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a028057ef852c58a42d75e09da87b5e733f4030f4c7411728955e4f87203a577"
+checksum = "f42818036d3b37cda6bd4c494543158a36e431cb717015ef7c93acc6ba214d3b"
 dependencies = [
  "ahash",
  "fluent-uri",
