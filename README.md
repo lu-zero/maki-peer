@@ -151,11 +151,29 @@ The use cases, including waking a team in one run, are in
 [Use cases](docs/use-cases.md). Ids, the `session` field, delivery, and the
 local-only limits are in [Architecture](docs/architecture.md).
 
+## Skills
+
+Each host ships a `peer` skill for finding peers and sending notes. The
+`peer-lane-coordination` skill covers the other direction: it tells a
+coordinator how to run several peers as lanes, from roll call and dispatch to
+answering reports and retiring worktrees.
+
+`skills/peer-lane-coordination/common.md` is the workflow. Each harness has a
+short note in `skills/peer-lane-coordination/harnesses/` for its tool names and
+delivery rules. `just skills` assembles them into `grok/skills`, `vibe/skills`
+and `claude/skills`, which ship with those plugins. Maki and OpenCode have no
+package-provided skill discovery, so their copies go to `skills/install/`.
+`just install-skills` puts those in `~/.config/maki/skills` and
+`~/.config/opencode/skills` (`$XDG_CONFIG_HOME` wins), and refreshes the
+personal `~/.claude/skills` copy. `just skills-check` fails when a checked-in
+copy is stale.
+
 ## Develop
 
 `just setup` installs the Rust and host dependencies at the pinned versions.
 `just all` runs every check in CI order. A single host can be checked with
 `just opencode`, `just grok`, `just vibe`, or `just claude`.
+`just skills` regenerates the skills from their common source and harness notes.
 
 CI pins bun 1.4.2. The four host packages pin TypeScript 7.0.2 and
 `@types/bun` 1.4.5, and each lockfile is committed. Dependabot proposes weekly

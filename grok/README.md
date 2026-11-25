@@ -7,7 +7,7 @@ observations through one shared directory. The layout is
 [Architecture](../docs/architecture.md).
 
 Grok does not load a TypeScript plugin. This directory is a Grok plugin:
-hooks, a skill, and an MCP server. The server and the hook logic are
+hooks, skills, and an MCP server. The server and the hook logic are
 TypeScript run by bun, which is how they share the spool code with the
 OpenCode half. bun must be on `PATH`, or at `~/.bun/bin/bun`.
 
@@ -23,7 +23,8 @@ git clone https://github.com/lu-zero/maki-peer
 grok plugin install /absolute/path/to/maki-peer/grok --trust
 ```
 
-Start a new session after installing. The skill is `peer`. The tools are
+Start a new session after installing. The skills are `peer` and
+`peer-lane-coordination`. The tools are
 `peer__peer_list`, `peer__peer_cwd`, `peer__peer_send`, and
 `peer__peer_broadcast`.
 

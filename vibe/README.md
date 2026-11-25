@@ -7,7 +7,7 @@ the five hosts discover each other and pass observations through one shared
 directory. The layout is
 [Architecture](../docs/architecture.md).
 
-Vibe loads this directory as an Agent Plugins 1.0 package: a skill, four
+Vibe loads this directory as an Agent Plugins 1.0 package: skills, four
 hooks, and an MCP server. The server and the hook logic are TypeScript run by
 bun, which is how they share the spool code with the OpenCode half. bun must
 be on `PATH`, or at `~/.bun/bin/bun`. Delivery at a turn start uses the
@@ -35,8 +35,8 @@ cp -a /absolute/path/to/maki-peer/vibe ~/.vibe/plugins/maki-peer
 ln -s /absolute/path/to/maki-peer/vibe ~/.vibe/plugins/maki-peer
 ```
 
-Start a new session, or run `/reload` in one that is already open. The skill
-is `peer`. Vibe publishes the tools as `mcp_peer.peer_list`,
+Start a new session, or run `/reload` in one that is already open. The skills
+are `peer` and `peer-lane-coordination`. Vibe publishes the tools as `mcp_peer.peer_list`,
 `mcp_peer.peer_cwd`, `mcp_peer.peer_send`, and `mcp_peer.peer_broadcast`.
 
 Vibe pins the tree it bound, so a running session keeps that tree until

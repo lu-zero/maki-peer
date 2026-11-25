@@ -39,6 +39,17 @@ jobs:
           rm stylua.zip
       - run: ./stylua --check plugin/
 
+  skills:
+    name: Skills
+    if: github.repository != 'lu-zero/maki-lua-plugin-template'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun skills/assemble.ts --check
+
   lint:
     name: Lint
     if: github.repository != 'lu-zero/maki-lua-plugin-template'

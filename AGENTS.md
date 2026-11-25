@@ -66,6 +66,9 @@ Its tests assert the hook stdout, the spool files, the tool results, and the opt
 - `claude/` — the Claude Code plugin (hooks, a skill, and an MCP server), its own `README.md`, and its tests. `src/shared` is a copy of the host-free spool modules.
 - `.claude-plugin/marketplace.json` — the local marketplace that installs `claude/`.
 - `justfile` — check, lint, test, and the per-host suites.
+- `skills/` — the common lane skill and one note per harness. `just skills`
+  assembles them into each host's skill directory; `just skills-check` is in
+  `just all`.
 
 ## The spool
 

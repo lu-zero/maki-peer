@@ -6,7 +6,7 @@ protocol as the [Maki](../README.md#maki), [OpenCode](../opencode/README.md),
 discover each other and pass observations through one shared directory. The
 layout is [Architecture](../docs/architecture.md).
 
-The plugin is a `.claude-plugin` package with hooks, a skill, and an MCP server.
+The plugin is a `.claude-plugin` package with hooks, skills, and an MCP server.
 The server and hook logic are TypeScript run by bun, which is how they share the
 spool code with the OpenCode half. bun must be on `PATH`, or at
 `~/.bun/bin/bun`.
@@ -34,7 +34,8 @@ root and points at `claude/`:
 With a published marketplace, the single line is
 `/plugin install maki-peer --marketplace <owner>/<repo>`.
 
-Start a new session after installing. The skill is `peer`. The MCP tools use
+Start a new session after installing. The skills are `peer` and
+`peer-lane-coordination`. The MCP tools use
 Claude's scoped names, for example `mcp__plugin_maki-peer_peer__peer_list`.
 
 ## Verify
