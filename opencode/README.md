@@ -14,14 +14,24 @@ it matches what the Maki side already does.
 
 ## Install
 
-Clone the repository and install the plugin's dependencies:
+From a checkout of this repository, run the installer. It writes both halves of
+the plugin and prints the paths it touched:
 
 ```sh
-git clone https://github.com/lu-zero/maki-peer
-cd maki-peer/opencode && bun install
+bun opencode/install.ts
 ```
 
-Then point a one-line file at the entrypoint:
+The installer installs the pinned dependencies when they are missing, writes
+`~/.config/opencode/plugins/maki-peer.ts`, links the TUI entrypoint into
+`~/.config/opencode/tui-plugins/maki-peer`, and adds that directory to
+`~/.config/opencode/cli.json`. It keeps other entries in `cli.json` and is safe
+to run again. `XDG_CONFIG_HOME` moves the config directory. The just recipe
+`install-opencode` runs the same command. Restart the TUI after the first
+install: plugin directories are found at startup.
+
+### Manual install
+
+Place the server shim yourself if you would rather not run the installer:
 
 ```ts title="~/.config/opencode/plugins/maki-peer.ts"
 export { default } from "/absolute/path/to/maki-peer/opencode/src/index.ts"
@@ -57,8 +67,7 @@ ln -sf /absolute/path/to/maki-peer/opencode/src/tui.ts \
 A package install can use the `./tui` export instead of a symlink. The TUI part
 registers `/peer` in slash completion and shows the list in a dialog. It reads
 the same spool as the tools and never calls `session.prompt`, so the command
-costs no model turn. Restart the TUI after adding it; plugin directories are
-found at startup.
+costs no model turn.
 
 ## Verify
 

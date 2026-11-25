@@ -6,6 +6,10 @@ setup:
     cargo fetch
     for d in opencode grok vibe claude; do (cd "$d" && bun install --frozen-lockfile); done
 
+# Point OpenCode at this checkout for both the server tools and /peer.
+install-opencode:
+    bun opencode/install.ts
+
 # Assemble the lane skill from its common body and per-harness notes.
 skills:
     bun skills/assemble.ts

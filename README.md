@@ -66,14 +66,11 @@ lists peers, and it can send or spawn.
 
 ### OpenCode
 
-Point `~/.config/opencode/plugins/maki-peer.ts` at the entrypoint:
+From a checkout, run `bun opencode/install.ts`. It writes the server shim and
+registers the TUI half that provides `/peer`. Restart the TUI after installing.
 
-```ts
-export { default } from "/absolute/path/to/maki-peer/opencode/src/index.ts"
-```
-
-Tools: `peer_list`, `peer_cwd`, `peer_send`, `peer_broadcast`. Install, the
-shim, and delivery are in the [OpenCode](opencode/README.md) page.
+Tools: `peer_list`, `peer_cwd`, `peer_send`, `peer_broadcast`. The shim, the
+TUI part, and delivery are in the [OpenCode](opencode/README.md) page.
 
 ### Grok
 
@@ -137,9 +134,9 @@ The short names in the table are the tool names. Grok prefixes them with
 `peer__`, Vibe with `mcp_peer.`, and Claude Code with
 `mcp__plugin_maki-peer_peer__`.
 
-`/peer` lists peers on Maki and, with the TUI part installed, on OpenCode. On
-Maki it also sends and spawns. `peer_spawn` exists only on Maki and starts a
-detached `tmux` session. The model spec is `provider/model-id`.
+`/peer` lists peers on Maki and on OpenCode, where the installer registers the
+TUI half. On Maki it also sends and spawns. `peer_spawn` exists only on Maki
+and starts a detached `tmux` session. The model spec is `provider/model-id`.
 
 ```text
 /peer
@@ -173,7 +170,9 @@ copy is stale.
 `just setup` installs the Rust and host dependencies at the pinned versions.
 `just all` runs every check in CI order. A single host can be checked with
 `just opencode`, `just grok`, `just vibe`, or `just claude`.
-`just skills` regenerates the skills from their common source and harness notes.
+`just install-opencode` points this checkout at the local OpenCode install,
+including the TUI half and `/peer`. `just skills` regenerates the skills from
+their common source and harness notes.
 
 CI pins bun 1.4.2. The four host packages pin TypeScript 7.0.2 and
 `@types/bun` 1.4.5, and each lockfile is committed. Dependabot proposes weekly
