@@ -2211,6 +2211,85 @@ fn a_received_message_without_wake_does_not_wake() {
     drop(host);
 }
 
+/// More than the receiver's threshold of unread peer messages wakes the
+/// session, even though no single message set wake. The threshold is the file
+/// `/peer wake 2` stores.
+#[test]
+fn a_burst_past_the_wake_threshold_wakes_the_session() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
+    exec_tool(&registry, "peer_list", json!({})).unwrap();
+    let id = owner_ids(&state)
+        .into_iter()
+        .next()
+        .expect("peer should register");
+
+    fs::write(state.join("peers/wake_threshold.json"), r#"{"count":2}"#).unwrap();
+
+    let live = MakiId::generate();
+    let mailbox = SessionMailbox::register(live);
+    fire_autocmd(
+        &host.event_handle(),
+        "SessionStatusChanged",
+        json!({ "session_id": live.to_string(), "status": "idle" }),
+    );
+
+    let mut paths = Vec::new();
+    for i in 1..=3 {
+        paths.push(write_inbound(
+            &state,
+            &id,
+            inbound(
+                &id,
+                &format!("note {i}"),
+                Some(&live.to_string()),
+                Some("maki"),
+            ),
+        ));
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while paths.iter().any(|path| path.exists()) {
+        assert!(Instant::now() < deadline, "messages were never delivered");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let woken = mailbox.claim_wake();
+    assert_eq!(
+        woken.len(),
+        3,
+        "the third unread message is more than the threshold of 2, so it wakes and carries all three"
+    );
+    drop(host);
+}
+
+#[test]
+fn the_peer_wake_command_stores_the_threshold() {
+    let (_temp, state) = common::isolated_state();
+    let (_registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let forward = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
+
+    host.event_handle().run_command(
+        Arc::from(PLUGIN_NAME),
+        Arc::from("/peer"),
+        "wake 3".to_owned(),
+        0,
+    );
+    let UiAction::Flash(message) = forward
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the wake subcommand should answer through the UI")
+    else {
+        panic!("the wake subcommand should flash");
+    };
+    assert!(message.contains("more than 3"), "got: {message}");
+    let stored = fs::read_to_string(state.join("peers/wake_threshold.json")).unwrap();
+    assert!(
+        stored.contains("3"),
+        "the threshold should persist: {stored}"
+    );
+    drop(host);
+}
+
 #[test]
 fn peer_send_with_wake_writes_the_flag() {
     let (_temp, state) = common::isolated_state();

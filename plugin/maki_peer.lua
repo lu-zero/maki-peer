@@ -153,6 +153,47 @@ local function remove_file(path)
   return true
 end
 
+local function wake_after_path()
+  return path_join(runtime.root, "wake_threshold.json")
+end
+
+local function wake_counts_path()
+  return path_join(runtime.root, "pending_wakes.json")
+end
+
+-- The receiver's wake threshold: once more than this many peer messages sit
+-- unread in a session, the next one wakes it. Persisted so a reload keeps it;
+-- absent or zero means only an explicit wake flag wakes.
+local function wake_after()
+  local raw = read_json(wake_after_path())
+  local count = raw and tonumber(raw.count)
+  if count and count > 0 then
+    return math.floor(count)
+  end
+  return nil
+end
+
+local function set_wake_after(count)
+  return write_json(wake_after_path(), { count = count })
+end
+
+-- Peer messages delivered to a session since it was last woken, keyed by
+-- session id. A burst past the threshold wakes even when no single message
+-- asked for it.
+local function wake_counts()
+  return read_json(wake_counts_path()) or {}
+end
+
+local function set_wake_count(session_id, count)
+  local counts = wake_counts()
+  if count then
+    counts[session_id] = count
+  else
+    counts[session_id] = nil
+  end
+  return write_json(wake_counts_path(), counts)
+end
+
 local MAX_TITLE_RUNES = 64
 local MAX_LIST_TITLE_RUNES = 24
 local MAX_FLOAT_TITLE_RUNES = 48
@@ -862,9 +903,21 @@ local function deliver_message(path, message, inbox_session_id)
     return "retry", "no live session for peer message"
   end
   local text = delivery_text(message)
+  -- An explicit wake flag always wakes. Otherwise the receiver's threshold
+  -- decides: more than wake_after unread peer messages in the session wakes
+  -- it, so a burst lands as one turn instead of N silent notes.
+  local wake = message.wake == true
+  local threshold = wake_after()
+  local next_count = nil
+  if not wake and threshold then
+    next_count = (tonumber(wake_counts()[tostring(target)]) or 0) + 1
+    if next_count > threshold then
+      wake = true
+    end
+  end
   local delivered, notify_err = maki.session.notify(text, {
     session = target,
-    wake = message.wake == true,
+    wake = wake,
     -- The transcript line. The model still reads `text`; this is the one
     -- line a later turn draws when it accepts the observation.
     display = body_line(message),
@@ -874,6 +927,11 @@ local function deliver_message(path, message, inbox_session_id)
       return "dead", notify_err
     end
     return "retry", notify_err
+  end
+  -- The count only moves once the message really landed, so a retry does not
+  -- count twice. Waking resets it: the turn that starts reads them all.
+  if next_count then
+    set_wake_count(tostring(target), wake and nil or next_count)
   end
   local removed, remove_err = remove_file(path)
   if not removed then
@@ -1730,9 +1788,43 @@ maki.api.register_command({
         "info",
         { title = "peer" }
       )
+    elseif subcommand == "wake" then
+      local arg = rest:match("^%s*(%S+)") or ""
+      if arg == "" then
+        local threshold = wake_after()
+        maki.notify(
+          threshold and ("This host's sessions wake after more than " .. threshold .. " unread peer messages.")
+            or "No wake threshold: only messages that set wake wake a session.",
+          "info",
+          { title = "peer" }
+        )
+        return
+      end
+      local count = arg ~= "off" and tonumber(arg)
+      if arg ~= "off" and (not count or count < 0 or count ~= math.floor(count)) then
+        maki.notify("Usage: /peer wake [off|<count>]", "warn", { title = "peer" })
+        return
+      end
+      count = arg == "off" and 0 or count
+      local laid_out, layout_err = ensure_layout()
+      if not laid_out then
+        maki.notify("Could not set the wake threshold: " .. tostring(layout_err), "error", { title = "peer" })
+        return
+      end
+      local written, write_err = set_wake_after(count)
+      if not written then
+        maki.notify("Could not set the wake threshold: " .. tostring(write_err), "error", { title = "peer" })
+        return
+      end
+      maki.notify(
+        count > 0 and ("This host's sessions now wake after more than " .. count .. " unread peer messages.")
+          or "Wake threshold off: only messages that set wake wake a session.",
+        "info",
+        { title = "peer" }
+      )
     else
       maki.notify(
-        "Usage: /peer [list|send <peer> <message>|spawn [--model <provider/model-id>] [tmux] <prompt>]",
+        "Usage: /peer [list|send <peer> <message>|spawn [--model <provider/model-id>] [tmux] <prompt>|wake [off|<count>]]",
         "warn",
         { title = "peer" }
       )
