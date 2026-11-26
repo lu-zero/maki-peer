@@ -2225,7 +2225,8 @@ fn a_burst_past_the_wake_threshold_wakes_the_session() {
         .next()
         .expect("peer should register");
 
-    fs::write(state.join("peers/wake_threshold.json"), r#"{"count":2}"#).unwrap();
+    // The receiver's threshold, set the way the agent does it: with the tool.
+    exec_tool(&registry, "peer_set_wake_after", json!({ "count": 2 })).unwrap();
 
     let live = MakiId::generate();
     let mailbox = SessionMailbox::register(live);
@@ -2287,6 +2288,34 @@ fn the_peer_wake_command_stores_the_threshold() {
         stored.contains("3"),
         "the threshold should persist: {stored}"
     );
+    drop(host);
+}
+
+/// The model can read and move the wake threshold itself, without the user
+/// typing /peer wake: omit count to read, 0 to turn off.
+#[test]
+fn the_agent_can_set_and_read_the_wake_threshold_with_a_tool() {
+    let (_temp, state) = common::isolated_state();
+    let (registry, mut host) = plugin_host(Path::new(env!("CARGO_MANIFEST_DIR")));
+    let _ = serve_ui_actions(ui_actions(&mut host), SESSION_TITLE);
+
+    let read = exec_tool(&registry, "peer_set_wake_after", json!({})).unwrap();
+    assert!(read.contains("off"), "starts off: {read}");
+
+    let set = exec_tool(&registry, "peer_set_wake_after", json!({ "count": 4 })).unwrap();
+    assert!(set.contains("more than 4"), "{set}");
+    let stored = fs::read_to_string(state.join("peers/wake_threshold.json")).unwrap();
+    assert!(
+        stored.contains("4"),
+        "the threshold should persist: {stored}"
+    );
+
+    let read = exec_tool(&registry, "peer_set_wake_after", json!({})).unwrap();
+    assert!(read.contains("more than 4"), "reads back: {read}");
+
+    let cleared = exec_tool(&registry, "peer_set_wake_after", json!({ "count": 0 })).unwrap();
+    assert!(cleared.contains("off"), "{cleared}");
+    assert!(exec_tool(&registry, "peer_set_wake_after", json!({ "count": -1 })).is_err());
     drop(host);
 }
 

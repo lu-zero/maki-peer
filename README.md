@@ -61,7 +61,7 @@ Approve `fs_read`, `fs_write`, `run`, and `session_write`. A checkout you
 placed there is granted what `plugin.toml` asks for. There is no separate
 `peer` permission. `session_write` covers `maki.session.notify`.
 
-Tools: `peer_list`, `peer_cwd`, `peer_send`, `peer_broadcast`, `peer_spawn`. `/peer`
+Tools: `peer_list`, `peer_cwd`, `peer_send`, `peer_broadcast`, `peer_spawn`, `peer_set_wake_after`. `/peer`
 lists peers, and it can send or spawn. `/peer wake <count>` makes this host wake a
 session once more than <count> peer messages sit unread in it (`/peer wake off`
 restores waking only on messages that set `wake`); `/peer wake` shows the current

@@ -1595,7 +1595,7 @@ end
 
 maki.api.register_prompt_hint({
   slot = "tool_usage",
-  content = "- Use peer_list to discover local peers and their working directories, peer_cwd for the directories alone as JSON, peer_send to send an observation, peer_broadcast to reach every peer, and peer_spawn to start an independent tmux peer, optionally on a chosen model spec.",
+  content = "- Use peer_list to discover local peers and their working directories, peer_cwd for the directories alone as JSON, peer_send to send an observation, peer_broadcast to reach every peer, peer_spawn to start an independent tmux peer, optionally on a chosen model spec, and peer_set_wake_after to set how many unread peer messages wake this host's sessions.",
 })
 
 maki.api.register_tool({
@@ -1637,6 +1637,39 @@ maki.api.register_tool({
       return { llm_output = err or "could not report peer directories", is_error = true }
     end
     return output
+  end,
+})
+
+maki.api.register_tool({
+  name = "peer_set_wake_after",
+  kind = "other",
+  description = "Set how many unread peer messages wake a session on this host: once more than count sit unread, the next one starts a turn. Omit count to read the current threshold, 0 turns it off. Only Maki receivers honour it; other hosts resume or attach mail on their own rules.",
+  schema = {
+    type = "object",
+    properties = {
+      count = { type = "integer", description = "Wake once more than this many peer messages are unread; 0 disables" },
+    },
+  },
+  handler = function(input)
+    local laid_out, layout_err = ensure_layout()
+    if not laid_out then
+      return { llm_output = tostring(layout_err), is_error = true }
+    end
+    local count = input.count
+    if count == nil then
+      local threshold = wake_after()
+      return threshold and ("wake threshold: more than " .. threshold .. " unread peer messages")
+        or "wake threshold: off (only messages that set wake wake a session)"
+    end
+    if count ~= math.floor(count) or count < 0 then
+      return { llm_output = "count must be a whole number of messages, 0 or more", is_error = true }
+    end
+    local written, write_err = set_wake_after(count)
+    if not written then
+      return { llm_output = tostring(write_err), is_error = true }
+    end
+    return count > 0 and ("wake threshold set: sessions wake after more than " .. count .. " unread peer messages")
+      or "wake threshold off: only messages that set wake wake a session"
   end,
 })
 
