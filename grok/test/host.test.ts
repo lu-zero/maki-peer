@@ -168,6 +168,46 @@ describe("delivery", () => {
     expect(parseOwner(read(spool.ownerPath(peer)))?.status).toBe("working")
   })
 
+  test("a wake-flagged note is delivered first", async () => {
+    const box = layout(tempRoot())
+    const spool = new Spool(box.spoolRoot)
+    await emit(box, { hook_event_name: "SessionStart", sessionId: session, cwd: "/work" })
+    const peer = peerIdOf(session)
+    await spool.write(
+      join(spool.inboxPath(peer), "m-plain.json"),
+      messageRecord({
+        id: "m-plain",
+        from: "maki-aaaaaaaa",
+        fromName: "maki-aaaaaaaa",
+        to: peer,
+        body: "plain note",
+        kind: "observation",
+        host: "maki",
+      }),
+    )
+    await spool.write(
+      join(spool.inboxPath(peer), "m-wake.json"),
+      messageRecord({
+        id: "m-wake",
+        from: "maki-aaaaaaaa",
+        fromName: "maki-aaaaaaaa",
+        to: peer,
+        body: "wake note",
+        kind: "observation",
+        host: "maki",
+        wake: true,
+      }),
+    )
+    const reply = await emit(box, { hook_event_name: "Stop", sessionId: session, cwd: "/work" })
+    const parsed = JSON.parse(reply) as { hookSpecificOutput: { additionalContext: string } }
+    const context = parsed.hookSpecificOutput.additionalContext
+    const wakeAt = context.indexOf("wake note")
+    const plainAt = context.indexOf("plain note")
+    expect(wakeAt).toBeGreaterThanOrEqual(0)
+    expect(plainAt).toBeGreaterThanOrEqual(0)
+    expect(wakeAt).toBeLessThan(plainAt)
+  })
+
   test("a grok message for a session this host does not run is dropped", async () => {
     const box = layout(tempRoot())
     const spool = new Spool(box.spoolRoot)

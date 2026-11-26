@@ -56,7 +56,8 @@ session is refused. Sending to another session of your own host works.
 The optional `wake` field asks the receiving host to start a turn for the
 note. Maki and Claude Code do that. OpenCode resumes the session on every
 delivery, and Grok and Vibe attach the note to a later turn without starting
-one. The field is written on every host so records stay alike.
+one (see [grok/upstream-issue.md](../grok/upstream-issue.md) and
+[vibe/upstream-issue.md](../vibe/upstream-issue.md)). The field is written on every host so records stay alike.
 
 On Vibe, `cwd` is recorded when a tool starts. Until that happens,
 `same_dir_only` refuses to select peers.

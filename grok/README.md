@@ -92,6 +92,19 @@ When several Grok sessions share one process, a send or a broadcast needs
 `GROK_SESSION_ID` to know which session asked. Without it, the list still
 runs and omits the `(you)` mark.
 
+## What this host cannot do yet
+
+An idle session does not start a turn. Grok's plugin surface is hooks plus a
+tools-only MCP server: a hook can attach text to a turn that is already running
+(`PostToolUse`, `Stop`), but nothing a plugin runs can submit a prompt to an
+idle session, and the MCP capability set has no equivalent of Claude Code's
+`claude/channel` notifications. So mail that arrives while the session is idle
+waits for the next turn, wake flag or not; wake-flagged mail is delivered first
+when that turn starts. [upstream-issue.md](upstream-issue.md) is the request to
+expose a turn-start primitive to plugins, to be filed on
+[xai-org/grok-build](https://github.com/xai-org/grok-build). This package does
+not patch Grok to get there.
+
 ## Develop
 
 ```sh

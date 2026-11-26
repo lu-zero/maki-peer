@@ -12,7 +12,7 @@ import { peerIdOf } from "./presence.ts"
  * this text: its stdout can only accept the turn or ask for a retry.
  */
 export async function takeMail(spool: Spool, sessionId: string): Promise<string> {
-  const lines: string[] = []
+  const lines: { wake: boolean; text: string }[] = []
   await receiveOnce({
     spool,
     peerID: peerIdOf(sessionId),
@@ -23,12 +23,17 @@ export async function takeMail(spool: Spool, sessionId: string): Promise<string>
       owns: (id) => id === sessionId,
     },
     deliver: async (message) => {
-      lines.push(deliveryText(message))
+      lines.push({ wake: message.wake === true, text: deliveryText(message) })
       return "delivered"
     },
   })
   if (lines.length === 0) return ""
-  let text = lines.join("\n")
+  // A wake request cannot start a turn on this host, so when the next turn
+  // does start its mail goes first, putting the note the sender cared about
+  // at the top of the attached context. The sort is stable: the rest keeps
+  // the oldest-first order.
+  lines.sort((a, b) => Number(b.wake) - Number(a.wake))
+  let text = lines.map((line) => line.text).join("\n")
   if (text.length > MAX_DELIVERY_CHARS) text = `${text.slice(0, MAX_DELIVERY_CHARS)}\n[truncated]`
   return JSON.stringify({ hook_specific_output: { additional_context: text } })
 }

@@ -250,6 +250,46 @@ describe("delivery", () => {
     expect(text.endsWith("\n[truncated]")).toBe(true)
     expect(text.length).toBeLessThan(9100)
   })
+
+  test("a wake-flagged note is delivered first", async () => {
+    const box = layout()
+    const peerId = peerIdOf(box.sessionId)
+    await box.spool.prepare()
+    await box.spool.ensureInbox(peerId)
+    await box.spool.write(
+      join(box.spool.inboxPath(peerId), "m-plain.json"),
+      messageRecord({
+        id: "m-plain",
+        from: "maki-aaaaaaaa",
+        fromName: "maki-aaaaaaaa",
+        to: peerId,
+        body: "plain note",
+        kind: "observation",
+        host: "maki",
+      }),
+    )
+    await box.spool.write(
+      join(box.spool.inboxPath(peerId), "m-wake.json"),
+      messageRecord({
+        id: "m-wake",
+        from: "maki-aaaaaaaa",
+        fromName: "maki-aaaaaaaa",
+        to: peerId,
+        body: "wake note",
+        kind: "observation",
+        host: "maki",
+        wake: true,
+      }),
+    )
+    const reply = await takeMail(box.spool, box.sessionId)
+    const text = (JSON.parse(reply) as { hook_specific_output: { additional_context: string } }).hook_specific_output
+      .additional_context
+    const wakeAt = text.indexOf("wake note")
+    const plainAt = text.indexOf("plain note")
+    expect(wakeAt).toBeGreaterThanOrEqual(0)
+    expect(plainAt).toBeGreaterThanOrEqual(0)
+    expect(wakeAt).toBeLessThan(plainAt)
+  })
 })
 
 describe("tools", () => {

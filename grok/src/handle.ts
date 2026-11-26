@@ -90,7 +90,7 @@ async function drain(input: {
   sessionId: string
   ownSessions: ReadonlySet<string>
 }): Promise<string[]> {
-  const lines: string[] = []
+  const lines: { wake: boolean; text: string }[] = []
   await receiveOnce({
     spool: input.spool,
     peerID: peerIdOf(input.sessionId),
@@ -103,7 +103,7 @@ async function drain(input: {
     deliver: async (message: PeerMessage, target: string) => {
       const rendered = deliveryText(message)
       if (target === input.sessionId) {
-        lines.push(rendered)
+        lines.push({ wake: message.wake === true, text: rendered })
         return "delivered"
       }
       if (input.ownSessions.has(target)) {
@@ -116,7 +116,13 @@ async function drain(input: {
     },
   })
   const pending = await takePending(input.runtime, input.sessionId)
-  return [...pending, ...lines]
+  // A wake request cannot start a turn on this host, so when the next turn
+  // does start, its mail goes first: the note the sender cared about sits at
+  // the top of the attached context. The sort is stable, so everything else
+  // keeps the oldest-first order.
+  const all = [...lines, ...pending.map((text) => ({ wake: false, text }))]
+  all.sort((a, b) => Number(b.wake) - Number(a.wake))
+  return all.map((line) => line.text)
 }
 
 /**
