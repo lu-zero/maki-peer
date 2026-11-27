@@ -22,7 +22,7 @@ jobs:
     if: github.repository != 'lu-zero/maki-lua-plugin-template'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: cargo fmt --all -- --check
 
   fmt-lua:
@@ -30,7 +30,7 @@ jobs:
     if: github.repository != 'lu-zero/maki-lua-plugin-template'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install stylua
         run: |
           curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors -o stylua.zip \
@@ -44,7 +44,7 @@ jobs:
     if: github.repository != 'lu-zero/maki-lua-plugin-template'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -57,7 +57,7 @@ jobs:
     env:
       OPENSSL_NO_VENDOR: 1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --tests -- -D warnings
 
@@ -68,7 +68,7 @@ jobs:
     env:
       OPENSSL_NO_VENDOR: 1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
@@ -87,7 +87,7 @@ jobs:
       run:
         working-directory: ${{ matrix.host }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
